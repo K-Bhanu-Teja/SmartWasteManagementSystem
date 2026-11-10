@@ -1,0 +1,74 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Smart Waste Management System{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/site.css' %}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="{% url 'home' %}">
+        <span class="brand-icon">♻</span>
+        <span>Smart Waste Management</span>
+      </a>
+      <nav class="site-nav" aria-label="Main navigation">
+        {% if user.is_authenticated %}
+          {% if user.role == 'administrator' or user.is_superuser %}
+            <a class="nav-link" href="{% url 'operations:admin_dashboard' %}">Dashboard</a>
+            <a class="nav-link" href="{% url 'operations:request_management' %}">Requests</a>
+            <a class="nav-link" href="{% url 'operations:dustbin_management' %}">Dustbins</a>
+            <a class="nav-link" href="{% url 'operations:worker_management' %}">Workers</a>
+            <a class="nav-link" href="{% url 'operations:crew_management' %}">Crews</a>
+            <a class="nav-link" href="{% url 'operations:vehicle_management' %}">Vehicles</a>
+            <a class="nav-link" href="{% url 'operations:task_management' %}">Tasks</a>
+            <span class="user-badge">Admin: {{ user.get_short_name|default:user.username }}</span>
+          {% elif user.role == 'worker' %}
+            <a class="nav-link" href="{% url 'operations:worker_dashboard' %}">Worker Dashboard</a>
+            <span class="user-badge">Worker: {{ user.get_short_name|default:user.username }}</span>
+          {% else %}
+            <a class="nav-link" href="{% url 'citizen:dashboard' %}">Dashboard</a>
+            <a class="nav-link" href="{% url 'citizen:nearby_dustbins' %}">Nearby Dustbins</a>
+            <a class="nav-link" href="{% url 'citizen:submit_request' %}">Submit Request</a>
+            <a class="nav-link" href="{% url 'citizen:my_requests' %}">My Requests</a>
+            <span class="user-badge">Citizen: {{ user.get_short_name|default:user.username }}</span>
+          {% endif %}
+          <form method="post" action="{% url 'accounts:logout' %}" style="display:inline;">
+            {% csrf_token %}
+            <button class="btn btn-secondary btn-sm" type="submit">Sign Out</button>
+          </form>
+        {% else %}
+          <a class="nav-link" href="{% url 'home' %}">Home</a>
+          <a class="nav-link" href="{% url 'accounts:login' %}">Login</a>
+          <a class="btn btn-primary btn-sm" href="{% url 'accounts:register' %}">Citizen Register</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+
+  {% if messages %}
+    <div class="container messages">
+      {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      Smart Waste Management System &copy; 2026 &middot; College Level Municipal Waste Project
+    </div>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

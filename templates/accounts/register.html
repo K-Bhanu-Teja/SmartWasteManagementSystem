@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Citizen Registration · SWMS{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 600px; margin-top: 30px;">
+  <div class="card">
+    <div class="card-header">
+      <h2>Citizen Registration</h2>
+    </div>
+    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+      Create a citizen account to view public bins, report waste issues, and request scheduled waste collection.
+      <em>(Sanitation workers are registered by the municipal administrator.)</em>
+    </p>
+
+    <form method="post" action="{% url 'accounts:register' %}">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="form-group">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.help_text %}
+            <div class="form-help">{{ field.help_text }}</div>
+          {% endif %}
+          {% if field.errors %}
+            {% for error in field.errors %}
+              <div class="form-error">{{ error }}</div>
+            {% endfor %}
+          {% endif %}
+        </div>
+      {% endfor %}
+
+      {% if form.non_field_errors %}
+        {% for error in form.non_field_errors %}
+          <div class="alert alert-danger">{{ error }}</div>
+        {% endfor %}
+      {% endif %}
+
+      <div style="margin-top: 20px;">
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Create Citizen Account</button>
+      </div>
+    </form>
+
+    <div style="margin-top: 20px; font-size: 0.9rem; text-align: center; border-top: 1px solid var(--border); padding-top: 14px;">
+      <p style="color: var(--text-muted);">
+        Already have an account? <a href="{% url 'accounts:login' %}">Sign In</a>
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

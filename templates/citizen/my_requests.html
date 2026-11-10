@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}My Requests · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <span class="role-pill">Tracking & Status</span>
+        <h1>My Submitted Requests</h1>
+        <p>Monitor your waste complaints and household collection requests.</p>
+      </div>
+      <a href="{% url 'citizen:submit_request' %}" class="btn btn-primary">+ Submit New Request</a>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <!-- Filter Bar -->
+  <form method="get" class="filter-bar">
+    <label style="font-weight: 600; font-size: 0.9rem;">Filter by Status:</label>
+    <select name="status" onchange="this.form.submit()">
+      <option value="">All Statuses</option>
+      {% for code, label in statuses %}
+        <option value="{{ code }}" {% if status_filter == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    {% if status_filter %}
+      <a href="{% url 'citizen:my_requests' %}" class="btn btn-secondary btn-sm">Clear Filter</a>
+    {% endif %}
+  </form>
+
+  <div class="card">
+    {% if requests %}
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Title</th>
+              <th>Cause</th>
+              <th>Submitted Date</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for req in requests %}
+              <tr>
+                <td>#{{ req.pk }}</td>
+                <td><strong>{{ req.title }}</strong></td>
+                <td>{{ req.cause }}</td>
+                <td>{{ req.created_at|date:"M j, Y g:i A" }}</td>
+                <td>
+                  <span class="badge badge-{{ req.status|lower }}">{{ req.get_status_display }}</span>
+                </td>
+                <td>
+                  <a href="{% url 'citizen:request_detail' req.pk %}" class="btn btn-secondary btn-sm">View Details</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div style="text-align: center; padding: 32px 0;">
+        <p style="color: var(--text-muted); font-size: 1rem; margin-bottom: 12px;">No requests found matching your filter.</p>
+        <a href="{% url 'citizen:submit_request' %}" class="btn btn-primary">Submit a Request</a>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

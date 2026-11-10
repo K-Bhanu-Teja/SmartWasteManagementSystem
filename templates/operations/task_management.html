@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block title %}Centralized Task Management · Admin · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <span class="role-pill">Operations Central</span>
+        <h1>Centralized Task Management</h1>
+        <p>Create independent municipal tasks, assign tasks to workers or crews, monitor progress, and verify completions.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <!-- Create Administrative Task -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Create Administrative Task</h2>
+    </div>
+    <form method="post" id="task-create-form">
+      {% csrf_token %}
+      <input type="hidden" name="create_task" value="1">
+      <div class="grid-cols-2">
+        <div class="form-group">
+          <label for="{{ form.title.id_for_label }}">Task Title *</label>
+          {{ form.title }}
+          {% if form.title.errors %}<div class="form-error">{{ form.title.errors }}</div>{% endif %}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.category.id_for_label }}">Task Category *</label>
+          {{ form.category }}
+          {% if form.category.errors %}<div class="form-error">{{ form.category.errors }}</div>{% endif %}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="{{ form.description.id_for_label }}">Task Instructions / Description *</label>
+        {{ form.description }}
+        {% if form.description.errors %}<div class="form-error">{{ form.description.errors }}</div>{% endif %}
+      </div>
+
+      <div class="grid-cols-3">
+        <div class="form-group">
+          <label for="{{ form.dustbin.id_for_label }}">Related Dustbin (optional)</label>
+          {{ form.dustbin }}
+          {% if form.dustbin.errors %}<div class="form-error">{{ form.dustbin.errors }}</div>{% endif %}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.location_name.id_for_label }}">Location Name / Address</label>
+          {{ form.location_name }}
+          {% if form.location_name.errors %}<div class="form-error">{{ form.location_name.errors }}</div>{% endif %}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.due_date.id_for_label }}">Due Date</label>
+          {{ form.due_date }}
+          {% if form.due_date.errors %}<div class="form-error">{{ form.due_date.errors }}</div>{% endif %}
+        </div>
+      </div>
+
+      <!-- Map Location Picker for Task Creation -->
+      <div class="form-group">
+        <label>Task Location Coordinates *</label>
+        <div class="grid-cols-2" style="margin-bottom: 8px;">
+          <div>
+            <label for="{{ form.latitude.id_for_label }}" style="font-size: 0.82rem; color: var(--text-muted);">Latitude *</label>
+            {{ form.latitude }}
+            {% if form.latitude.errors %}<div class="form-error">{{ form.latitude.errors }}</div>{% endif %}
+          </div>
+          <div>
+            <label for="{{ form.longitude.id_for_label }}" style="font-size: 0.82rem; color: var(--text-muted);">Longitude *</label>
+            {{ form.longitude }}
+            {% if form.longitude.errors %}<div class="form-error">{{ form.longitude.errors }}</div>{% endif %}
+          </div>
+        </div>
+
+        <div id="task-create-map" style="height: 320px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px;"></div>
+        <div class="form-help">Click anywhere on the map or drag the marker to pin coordinates. You can also manually type latitude and longitude above.</div>
+      </div>
+
+      <div class="grid-cols-2" style="background-color: var(--primary-light); padding: 14px; border-radius: 4px; margin-bottom: 16px; border: 1px solid #C8E6C9;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="{{ form.assigned_worker.id_for_label }}">Assign Directly to Worker (optional)</label>
+          {{ form.assigned_worker }}
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="{{ form.assigned_crew.id_for_label }}">OR Assign to Temporary Crew (optional)</label>
+          {{ form.assigned_crew }}
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">+ Create &amp; Dispatch Task</button>
+    </form>
+  </div>
+
+  <!-- Filter Bar -->
+  <form method="get" class="filter-bar">
+    <label style="font-weight: 600; font-size: 0.9rem;">Status:</label>
+    <select name="status" onchange="this.form.submit()">
+      <option value="">All Statuses</option>
+      {% for code, label in statuses %}
+        <option value="{{ code }}" {% if status_filter == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+
+    <label style="font-weight: 600; font-size: 0.9rem; margin-left: 10px;">Category:</label>
+    <select name="category" onchange="this.form.submit()">
+      <option value="">All Categories</option>
+      {% for code, label in categories %}
+        <option value="{{ code }}" {% if category_filter == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+
+    {% if status_filter or category_filter %}
+      <a href="{% url 'operations:task_management' %}" class="btn btn-secondary btn-sm">Clear Filters</a>
+    {% endif %}
+  </form>
+
+  <!-- Tasks Table -->
+  <div class="card">
+    <div class="card-header">
+      <h3>All Operational Tasks ({{ tasks.count }})</h3>
+    </div>
+    {% if tasks %}
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Title</th>
+              <th>Category</th>
+              <th>Assigned To</th>
+              <th>Due Date</th>
+              <th>Status</th>
+              <th>Verified</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for task in tasks %}
+              <tr>
+                <td>#{{ task.pk }}</td>
+                <td><strong>{{ task.title }}</strong></td>
+                <td>{{ task.category }}</td>
+                <td>
+                  {% if task.assigned_worker %}
+                    Worker: {{ task.assigned_worker.get_full_name|default:task.assigned_worker.username }}
+                  {% elif task.assigned_crew %}
+                    Crew: {{ task.assigned_crew.name }}
+                  {% else %}
+                    <span style="color: var(--text-muted);">Unassigned</span>
+                  {% endif %}
+                </td>
+                <td>{{ task.due_date|default:"-" }}</td>
+                <td><span class="badge badge-{{ task.status|lower }}">{{ task.get_status_display }}</span></td>
+                <td>
+                  {% if task.verified_by_admin %}
+                    <span class="badge badge-approved">Yes</span>
+                  {% else %}
+                    <span style="color: var(--text-muted); font-size: 0.82rem;">No</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <a href="{% url 'operations:task_detail' task.pk %}" class="btn btn-secondary btn-sm">Details / Action</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p style="color: var(--text-muted); padding: 16px 0;">No tasks found matching criteria.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if GOOGLE_MAPS_API_KEY %}
+<script>
+  let taskCreateMap;
+  let taskMarker = null;
+  const latInput = document.getElementById("id_latitude");
+  const lngInput = document.getElementById("id_longitude");
+  const defaultPos = { lat: 16.833944, lng: 81.531444 };
+
+  function initTaskCreateMap() {
+    let initialLat = parseFloat(latInput.value);
+    let initialLng = parseFloat(lngInput.value);
+
+    const hasInitial = !isNaN(initialLat) && !isNaN(initialLng);
+    const startPos = hasInitial ? { lat: initialLat, lng: initialLng } : defaultPos;
+
+    taskCreateMap = new google.maps.Map(document.getElementById("task-create-map"), {
+      center: startPos,
+      zoom: 14,
+    });
+
+    taskMarker = new google.maps.Marker({
+      position: startPos,
+      map: taskCreateMap,
+      draggable: true,
+      title: "Task Location",
+    });
+
+    if (!hasInitial) {
+      latInput.value = startPos.lat.toFixed(6);
+      lngInput.value = startPos.lng.toFixed(6);
+    }
+
+    // Map click places / moves marker
+    taskCreateMap.addListener("click", (event) => {
+      const pos = event.latLng;
+      taskMarker.setPosition(pos);
+      latInput.value = pos.lat().toFixed(6);
+      lngInput.value = pos.lng().toFixed(6);
+    });
+
+    // Drag marker updates lat & lng inputs
+    taskMarker.addListener("dragend", (event) => {
+      const pos = event.latLng;
+      latInput.value = pos.lat().toFixed(6);
+      lngInput.value = pos.lng().toFixed(6);
+    });
+
+    // Manual input updates marker
+    function syncMarkerFromInputs() {
+      const latVal = parseFloat(latInput.value);
+      const lngVal = parseFloat(lngInput.value);
+      if (!isNaN(latVal) && !isNaN(lngVal) && latVal >= -90 && latVal <= 90 && lngVal >= -180 && lngVal <= 180) {
+        const newPos = { lat: latVal, lng: lngVal };
+        taskMarker.setPosition(newPos);
+        taskCreateMap.panTo(newPos);
+      }
+    }
+
+    latInput.addEventListener("input", syncMarkerFromInputs);
+    lngInput.addEventListener("input", syncMarkerFromInputs);
+    latInput.addEventListener("change", syncMarkerFromInputs);
+    lngInput.addEventListener("change", syncMarkerFromInputs);
+  }
+</script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY|urlencode }}&callback=initTaskCreateMap"></script>
+{% endif %}
+{% endblock %}

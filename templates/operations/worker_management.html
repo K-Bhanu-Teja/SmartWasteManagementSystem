@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Worker Management · Admin · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <span class="role-pill">Workforce Operations</span>
+        <h1>Sanitation Worker Management</h1>
+        <p>Register workers, assign job designations, monitor availability states, and manage active crew assignments.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <!-- Register Worker Card -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Register New Worker</h2>
+    </div>
+    <form method="post">
+      {% csrf_token %}
+      <div class="grid-cols-3">
+        <div class="form-group">
+          <label for="{{ form.full_name.id_for_label }}">Full Name *</label>
+          {{ form.full_name }}
+          {% if form.full_name.errors %}<div class="form-error">{{ form.full_name.errors }}</div>{% endif %}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.email.id_for_label }}">Email Address *</label>
+          {{ form.email }}
+          {% if form.email.errors %}<div class="form-error">{{ form.email.errors }}</div>{% endif %}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.mobile_number.id_for_label }}">Mobile Number *</label>
+          {{ form.mobile_number }}
+          {% if form.mobile_number.errors %}<div class="form-error">{{ form.mobile_number.errors }}</div>{% endif %}
+        </div>
+      </div>
+
+      <div class="grid-cols-3">
+        <div class="form-group">
+          <label for="{{ form.designation.id_for_label }}">Job Designation *</label>
+          {{ form.designation }}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.worker_id.id_for_label }}">Worker ID (optional)</label>
+          {{ form.worker_id }}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.password.id_for_label }}">Initial Password *</label>
+          {{ form.password }}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="{{ form.residential_address.id_for_label }}">Residential Address</label>
+        {{ form.residential_address }}
+      </div>
+
+      <button type="submit" class="btn btn-primary">+ Register Worker</button>
+    </form>
+  </div>
+
+  <!-- Filter Bar -->
+  <form method="get" class="filter-bar">
+    <label style="font-weight: 600; font-size: 0.9rem;">Designation:</label>
+    <select name="designation" onchange="this.form.submit()">
+      <option value="">All Designations</option>
+      {% for code, label in designations %}
+        <option value="{{ code }}" {% if designation_filter == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+
+    <label style="font-weight: 600; font-size: 0.9rem; margin-left: 10px;">Availability:</label>
+    <select name="availability" onchange="this.form.submit()">
+      <option value="">All States</option>
+      {% for code, label in availabilities %}
+        <option value="{{ code }}" {% if availability_filter == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+
+    {% if designation_filter or availability_filter %}
+      <a href="{% url 'operations:worker_management' %}" class="btn btn-secondary btn-sm">Clear Filter</a>
+    {% endif %}
+  </form>
+
+  <!-- Workers Table -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Registered Workers ({{ workers|length }})</h3>
+    </div>
+    {% if workers %}
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Worker ID</th>
+              <th>Name</th>
+              <th>Designation</th>
+              <th>Phone</th>
+              <th>Availability</th>
+              <th>Active Crew</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in workers %}
+              <tr>
+                <td><strong>{{ item.profile.worker_id|default:item.profile.user.pk }}</strong></td>
+                <td>{{ item.profile.user.get_full_name|default:item.profile.user.username }}</td>
+                <td>
+                  <span class="badge" style="background-color: var(--primary-light); color: var(--primary);">
+                    {{ item.profile.get_designation_display }}
+                  </span>
+                </td>
+                <td>{{ item.profile.phone|default:item.profile.user.phone|default:"-" }}</td>
+                <td>
+                  <span class="badge badge-{{ item.profile.availability|lower }}">
+                    {{ item.profile.get_availability_display }}
+                  </span>
+                </td>
+                <td>
+                  {% if item.active_crew %}
+                    <a href="{% url 'operations:crew_detail' item.active_crew.pk %}">{{ item.active_crew.name }}</a>
+                  {% else %}
+                    <span style="color: var(--text-muted); font-size: 0.85rem;">None</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <a href="{% url 'operations:worker_update' item.profile.pk %}" class="btn btn-secondary btn-sm">Edit Profile</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p style="color: var(--text-muted); padding: 16px 0;">No workers match the selected criteria.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

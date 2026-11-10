@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Request Management · Admin · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <span class="role-pill">Administrator Services</span>
+    <h1>Citizen Request Management</h1>
+    <p>Review waste complaints and collection requests, approve/reject submissions, and dispatch tasks.</p>
+  </div>
+</section>
+
+<div class="container">
+  <!-- Filter Bar -->
+  <form method="get" class="filter-bar">
+    <label style="font-weight: 600; font-size: 0.9rem;">Status:</label>
+    <select name="status" onchange="this.form.submit()">
+      <option value="">All Statuses</option>
+      {% for code, label in statuses %}
+        <option value="{{ code }}" {% if status_filter == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+
+    <label style="font-weight: 600; font-size: 0.9rem; margin-left: 10px;">Cause:</label>
+    <select name="cause" onchange="this.form.submit()">
+      <option value="">All Causes</option>
+      {% for code, label in causes %}
+        <option value="{{ code }}" {% if cause_filter == code %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+
+    {% if status_filter or cause_filter %}
+      <a href="{% url 'operations:request_management' %}" class="btn btn-secondary btn-sm">Clear Filters</a>
+    {% endif %}
+  </form>
+
+  <div class="card">
+    {% if requests %}
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Citizen</th>
+              <th>Title</th>
+              <th>Cause</th>
+              <th>Submitted Date</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for req in requests %}
+              <tr>
+                <td>#{{ req.pk }}</td>
+                <td>{{ req.citizen.get_full_name|default:req.citizen.username }}</td>
+                <td><strong>{{ req.title }}</strong></td>
+                <td>{{ req.cause }}</td>
+                <td>{{ req.created_at|date:"M j, Y g:i A" }}</td>
+                <td><span class="badge badge-{{ req.status|lower }}">{{ req.get_status_display }}</span></td>
+                <td>
+                  <a href="{% url 'operations:request_detail_admin' req.pk %}" class="btn btn-secondary btn-sm">Review &amp; Action</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div style="text-align: center; padding: 32px 0;">
+        <p style="color: var(--text-muted); font-size: 1rem;">No requests match the selected filters.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

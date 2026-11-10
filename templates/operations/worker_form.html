@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Edit Worker · Admin · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <span class="role-pill">Worker Administration</span>
+    <h1>Edit Worker Profile</h1>
+    <p>Update personal and operational records for <strong>{{ worker_profile.user.get_full_name|default:worker_profile.user.username }}</strong>.</p>
+  </div>
+</section>
+
+<div class="container" style="max-width: 680px;">
+  <div class="card">
+    <div class="card-header">
+      <h3>Worker Information</h3>
+    </div>
+    <form method="post">
+      {% csrf_token %}
+      <div class="grid-cols-2">
+        <div class="form-group">
+          <label for="{{ form.full_name.id_for_label }}">Full Name</label>
+          {{ form.full_name }}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.email.id_for_label }}">Email</label>
+          {{ form.email }}
+        </div>
+      </div>
+
+      <div class="grid-cols-2">
+        <div class="form-group">
+          <label for="{{ form.phone.id_for_label }}">Phone Number</label>
+          {{ form.phone }}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.worker_id.id_for_label }}">Worker ID</label>
+          {{ form.worker_id }}
+        </div>
+      </div>
+
+      <div class="grid-cols-2">
+        <div class="form-group">
+          <label for="{{ form.designation.id_for_label }}">Designation</label>
+          {{ form.designation }}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.availability.id_for_label }}">Availability Status</label>
+          {{ form.availability }}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="{{ form.residential_address.id_for_label }}">Residential Address</label>
+        {{ form.residential_address }}
+      </div>
+
+      <div class="btn-group" style="margin-top: 20px;">
+        <button type="submit" class="btn btn-primary">Save Worker</button>
+        <a href="{% url 'operations:worker_management' %}" class="btn btn-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

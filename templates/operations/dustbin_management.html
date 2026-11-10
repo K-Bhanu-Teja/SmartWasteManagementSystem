@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+{% block title %}Dustbin Management · Admin · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <span class="role-pill">Asset Management</span>
+        <h1>Municipal Dustbin Management</h1>
+        <p>Register public dustbins using the interactive map or manual coordinates, track status, and view cleaning schedules.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <!-- Map of Dustbins -->
+  <div class="card">
+    <div class="card-header">
+      <h2>Public Dustbins Map Overview</h2>
+    </div>
+    <div id="admin-dustbin-map" class="map-box"></div>
+    <div class="map-legend">
+      <div class="legend-item">
+        <span class="legend-dot dot-dustbin"></span>
+        <span>Registered Public Dustbins (Click marker for details)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-cols-2">
+    <!-- Register New Dustbin Form -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Add New Dustbin</h3>
+      </div>
+      <form method="post" id="add-dustbin-form">
+        {% csrf_token %}
+        <div class="form-group">
+          <label for="{{ form.name.id_for_label }}">Dustbin Name / Code (leave blank to auto-name)</label>
+          {{ form.name }}
+          {% if form.name.errors %}<div style="color: #c62828; font-size: 0.82rem; margin-top: 4px;">{{ form.name.errors.0 }}</div>{% endif %}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.description.id_for_label }}">Location Description</label>
+          {{ form.description }}
+          {% if form.description.errors %}<div style="color: #c62828; font-size: 0.82rem; margin-top: 4px;">{{ form.description.errors.0 }}</div>{% endif %}
+        </div>
+
+        <div class="form-group">
+          <label><strong>Select Dustbin Location on Map:</strong></label>
+          <p class="form-hint" style="margin-top: 2px; margin-bottom: 8px; font-size: 0.82rem; color: var(--text-muted);">
+            Click on the map or drag the green marker to pinpoint coordinates. You may also type latitude and longitude manually below.
+          </p>
+          <div id="dustbin-picker-map" style="width: 100%; height: 300px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 0.6rem; background: #e8f5e9;"></div>
+          <div id="dustbin-picker-coords-badge" style="font-size: 0.82rem; color: var(--primary); font-weight: 600; margin-bottom: 8px;">
+            No marker placed yet. Click on the map to set location.
+          </div>
+        </div>
+
+        <div class="grid-cols-2">
+          <div class="form-group">
+            <label for="{{ form.latitude.id_for_label }}">Latitude *</label>
+            {{ form.latitude }}
+            {% if form.latitude.errors %}<div style="color: #c62828; font-size: 0.82rem; margin-top: 4px;">{{ form.latitude.errors.0 }}</div>{% endif %}
+          </div>
+          <div class="form-group">
+            <label for="{{ form.longitude.id_for_label }}">Longitude *</label>
+            {{ form.longitude }}
+            {% if form.longitude.errors %}<div style="color: #c62828; font-size: 0.82rem; margin-top: 4px;">{{ form.longitude.errors.0 }}</div>{% endif %}
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="{{ form.last_cleaned_at.id_for_label }}">Initial Last Cleaned Date/Time (optional)</label>
+          {{ form.last_cleaned_at }}
+          {% if form.last_cleaned_at.errors %}<div style="color: #c62828; font-size: 0.82rem; margin-top: 4px;">{{ form.last_cleaned_at.errors.0 }}</div>{% endif %}
+        </div>
+        <div class="form-group">
+          <label>
+            {{ form.is_active }} Active Dustbin
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 10px;">+ Register Dustbin</button>
+      </form>
+    </div>
+
+    <!-- Dustbins Table -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Registered Dustbins ({{ dustbins.count }})</h3>
+      </div>
+      {% if dustbins %}
+        <div class="table-responsive" style="max-height: 540px; overflow-y: auto;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Description</th>
+                <th>Last Cleaned</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for bin in dustbins %}
+                <tr>
+                  <td><strong>{{ bin.name }}</strong></td>
+                  <td>{{ bin.description|default:"Public bin" }}</td>
+                  <td style="font-size: 0.85rem;">
+                    {{ bin.last_cleaned_at|date:"M j, Y g:i A"|default:"Not recorded" }}
+                  </td>
+                  <td>
+                    <div class="btn-group">
+                      <a href="{% url 'operations:dustbin_update' bin.pk %}" class="btn btn-secondary btn-sm">Edit / History</a>
+                      <form method="post" action="{% url 'operations:dustbin_delete' bin.pk %}" onsubmit="return confirm('Delete dustbin {{ bin.name }}?');" style="display:inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">No dustbins registered yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if GOOGLE_MAPS_API_KEY %}
+<script>
+  function initDustbinAdminMaps() {
+    const defaultCenter = { lat: 16.833944, lng: 81.531444 };
+
+    // Overview map
+    const overviewMapEl = document.getElementById("admin-dustbin-map");
+    let overviewMap = null;
+    const overviewInfoWindow = new google.maps.InfoWindow();
+    if (overviewMapEl) {
+      overviewMap = new google.maps.Map(overviewMapEl, {
+        center: defaultCenter,
+        zoom: 14,
+      });
+    }
+
+    // Picker map in the Add Dustbin card
+    const pickerMapEl = document.getElementById("dustbin-picker-map");
+    const latInput = document.getElementById("id_dustbin_lat") || document.getElementById("id_latitude");
+    const lngInput = document.getElementById("id_dustbin_lng") || document.getElementById("id_longitude");
+    const badgeEl = document.getElementById("dustbin-picker-coords-badge");
+
+    let pickerMap = null;
+    let newBinMarker = null;
+
+    if (pickerMapEl) {
+      const initialLat = parseFloat(latInput && latInput.value);
+      const initialLng = parseFloat(lngInput && lngInput.value);
+      const startCenter = (!isNaN(initialLat) && !isNaN(initialLng))
+        ? { lat: initialLat, lng: initialLng }
+        : defaultCenter;
+
+      pickerMap = new google.maps.Map(pickerMapEl, {
+        center: startCenter,
+        zoom: 15,
+        streetViewControl: false,
+        mapTypeControl: false,
+      });
+
+      function updateMarkerAndBadge(lat, lng, panToMarker) {
+        if (latInput) latInput.value = lat.toFixed(6);
+        if (lngInput) lngInput.value = lng.toFixed(6);
+
+        if (badgeEl) {
+          badgeEl.textContent = `Selected Location: Latitude ${lat.toFixed(6)}, Longitude ${lng.toFixed(6)}`;
+          badgeEl.style.color = "#2E7D32";
+        }
+
+        const pos = { lat: lat, lng: lng };
+        if (!newBinMarker) {
+          newBinMarker = new google.maps.Marker({
+            position: pos,
+            map: pickerMap,
+            draggable: true,
+            title: "New Dustbin Location (Drag to adjust)",
+            icon: {
+              path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+              scale: 6,
+              fillColor: "#2E7D32",
+              fillOpacity: 1,
+              strokeWeight: 2,
+              strokeColor: "#FFFFFF",
+            },
+            animation: google.maps.Animation.DROP,
+          });
+
+          newBinMarker.addListener("dragend", (e) => {
+            updateMarkerAndBadge(e.latLng.lat(), e.latLng.lng(), false);
+          });
+        } else {
+          newBinMarker.setPosition(pos);
+        }
+
+        if (panToMarker) {
+          pickerMap.panTo(pos);
+        }
+      }
+
+      // Initialize with existing input values if present
+      if (!isNaN(initialLat) && !isNaN(initialLng) && initialLat >= -90 && initialLat <= 90 && initialLng >= -180 && initialLng <= 180) {
+        updateMarkerAndBadge(initialLat, initialLng, true);
+      }
+
+      // Click on picker map to set marker
+      pickerMap.addListener("click", (e) => {
+        updateMarkerAndBadge(e.latLng.lat(), e.latLng.lng(), false);
+      });
+
+      // Manual input listeners
+      function handleManualInput() {
+        if (!latInput || !lngInput) return;
+        const lat = parseFloat(latInput.value);
+        const lng = parseFloat(lngInput.value);
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          updateMarkerAndBadge(lat, lng, true);
+        }
+      }
+
+      if (latInput) latInput.addEventListener("input", handleManualInput);
+      if (lngInput) lngInput.addEventListener("input", handleManualInput);
+    }
+
+    // Load registered dustbins to show on both maps
+    fetch("{% url 'citizen:dustbins_api' %}")
+      .then(res => res.json())
+      .then(data => {
+        if (data.dustbins && data.dustbins.length > 0) {
+          const overviewBounds = new google.maps.LatLngBounds();
+
+          data.dustbins.forEach(bin => {
+            const pos = { lat: bin.latitude, lng: bin.longitude };
+
+            // Overview map marker
+            if (overviewMap) {
+              const marker = new google.maps.Marker({
+                position: pos,
+                map: overviewMap,
+                title: bin.name,
+                icon: {
+                  path: google.maps.SymbolPath.CIRCLE,
+                  scale: 8,
+                  fillColor: "#2E7D32",
+                  fillOpacity: 1,
+                  strokeWeight: 2,
+                  strokeColor: "#FFFFFF",
+                }
+              });
+
+              marker.addListener("click", () => {
+                overviewInfoWindow.setContent(`
+                  <div style="font-family: inherit; padding: 4px;">
+                    <h4 style="color: #2E7D32; margin-bottom: 4px;">${bin.name}</h4>
+                    <p style="margin: 0; font-size: 13px;">${bin.description || 'Public Dustbin'}</p>
+                    <p style="margin: 4px 0 0; font-size: 12px; color: #555;">
+                      <strong>Last Cleaned:</strong> ${bin.last_cleaned_at}
+                    </p>
+                  </div>
+                `);
+                overviewInfoWindow.open(overviewMap, marker);
+              });
+
+              overviewBounds.extend(pos);
+            }
+
+            // Picker map reference markers (small gray circles so admin knows existing locations)
+            if (pickerMap) {
+              new google.maps.Marker({
+                position: pos,
+                map: pickerMap,
+                title: `${bin.name} (Existing bin)`,
+                icon: {
+                  path: google.maps.SymbolPath.CIRCLE,
+                  scale: 5,
+                  fillColor: "#757575",
+                  fillOpacity: 0.8,
+                  strokeWeight: 1,
+                  strokeColor: "#FFFFFF",
+                }
+              });
+            }
+          });
+
+          if (overviewMap) {
+            overviewMap.fitBounds(overviewBounds);
+          }
+        }
+      })
+      .catch(err => console.error("Error loading dustbins for admin maps:", err));
+  }
+</script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY|urlencode }}&callback=initDustbinAdminMaps"></script>
+{% endif %}
+{% endblock %}

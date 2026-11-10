@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Request #{{ request_item.pk }} · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <span class="role-pill">Request Tracking</span>
+        <h1>Request #{{ request_item.pk }}: {{ request_item.title }}</h1>
+        <p>Submitted on {{ request_item.created_at|date:"F j, Y, g:i A" }}</p>
+      </div>
+      <div>
+        <span class="badge badge-{{ request_item.status|lower }}" style="font-size: 1rem; padding: 6px 12px;">
+          {{ request_item.get_status_display }}
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container" style="max-width: 900px;">
+  <div class="grid-cols-2">
+    <!-- Left Column: Details -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Request Information</h3>
+      </div>
+      <p style="margin-bottom: 12px;"><strong>Cause:</strong> {{ request_item.cause }}</p>
+      <p style="margin-bottom: 12px;"><strong>Description:</strong></p>
+      <div style="background-color: var(--bg-main); padding: 12px; border-radius: 4px; margin-bottom: 16px;">
+        {{ request_item.description|linebreaks }}
+      </div>
+
+      {% if request_item.cause == "Scheduled Waste Pickup" %}
+        <div style="background-color: var(--primary-light); padding: 14px; border-radius: 4px; margin-bottom: 16px; border: 1px solid #C8E6C9;">
+          <h4 style="color: var(--primary); margin-bottom: 8px;">Scheduled Collection Details</h4>
+          <p style="margin-bottom: 4px;"><strong>Preferred Date:</strong> {{ request_item.preferred_pickup_date|default:"Not specified" }}</p>
+          <p style="margin-bottom: 4px;"><strong>Preferred Time:</strong> {{ request_item.preferred_pickup_time|default:"Not specified" }}</p>
+          <p style="margin-bottom: 0;"><strong>Category:</strong> {{ request_item.waste_category|default:"General" }}</p>
+        </div>
+      {% endif %}
+
+      <p style="margin-bottom: 8px;"><strong>Location / Landmark:</strong> {{ request_item.address|default:"Specified via map coordinates" }}</p>
+      <p style="margin-bottom: 16px; color: var(--text-muted); font-size: 0.85rem;">
+        Coordinates: {{ request_item.latitude }}, {{ request_item.longitude }}
+      </p>
+
+      {% if request_item.admin_remarks %}
+        <div style="background-color: #FFF3E0; border: 1px solid #FFE0B2; padding: 12px; border-radius: 4px; margin-bottom: 16px;">
+          <strong style="color: var(--status-orange);">Administrator Remarks:</strong>
+          <p style="margin: 4px 0 0; font-size: 0.9rem;">{{ request_item.admin_remarks }}</p>
+        </div>
+      {% endif %}
+
+      <!-- Cancel request button if eligible -->
+      {% if request_item.status in "SUBMITTED,UNDER_REVIEW,APPROVED" %}
+        <div style="border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px;">
+          <form method="post" action="{% url 'citizen:cancel_request' request_item.pk %}" onsubmit="return confirm('Are you sure you want to cancel this request?');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger btn-sm">Cancel This Request</button>
+            <span class="form-help" style="display: block; margin-top: 4px;">You can cancel this request before a task is assigned to workers.</span>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Right Column: Photograph & Map -->
+    <div>
+      {% if request_item.photo %}
+        <div class="card">
+          <div class="card-header">
+            <h3>Uploaded Photograph</h3>
+          </div>
+          <img src="{{ request_item.photo.url }}" alt="Request Photo" style="width: 100%; max-height: 280px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border);">
+        </div>
+      {% endif %}
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Location Map</h3>
+        </div>
+        <div id="request-map" style="height: 240px; border: 1px solid var(--border); border-radius: 4px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Completion & Verification Section -->
+  {% if task and task.completion_remarks or request_item.status == "RESOLVED" %}
+    <div class="card" style="border-left: 4px solid var(--status-green);">
+      <div class="card-header">
+        <h3 style="color: var(--status-green);">Resolution & Completion Proof</h3>
+        {% if task.verified_by_admin %}
+          <span class="badge badge-approved">Verified by Admin</span>
+        {% endif %}
+      </div>
+      <div class="grid-cols-2">
+        <div>
+          <p style="margin-bottom: 8px;"><strong>Status:</strong> Resolved & Completed</p>
+          {% if task.completed_at %}
+            <p style="margin-bottom: 8px;"><strong>Completed At:</strong> {{ task.completed_at|date:"F j, Y, g:i A" }}</p>
+          {% endif %}
+          {% if task.completion_remarks %}
+            <p style="margin-bottom: 4px;"><strong>Worker Remarks:</strong></p>
+            <div style="background-color: var(--bg-main); padding: 10px; border-radius: 4px; font-size: 0.9rem; margin-bottom: 12px;">
+              {{ task.completion_remarks }}
+            </div>
+          {% endif %}
+          {% if task.admin_notes %}
+            <p style="margin-bottom: 4px;"><strong>Admin Verification Notes:</strong></p>
+            <div style="background-color: var(--primary-light); padding: 10px; border-radius: 4px; font-size: 0.9rem;">
+              {{ task.admin_notes }}
+            </div>
+          {% endif %}
+        </div>
+        <div>
+          {% if task.completion_photo %}
+            <p style="font-weight: 600; margin-bottom: 6px;">Completion Photograph:</p>
+            <img src="{{ task.completion_photo.url }}" alt="Completion Proof" style="width: 100%; max-height: 220px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border);">
+          {% else %}
+            <p style="color: var(--text-muted); font-size: 0.9rem;">Work verified and closed by municipal operations.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <div style="margin-top: 20px;">
+    <a href="{% url 'citizen:my_requests' %}" class="btn btn-secondary">&larr; Back to My Requests</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if GOOGLE_MAPS_API_KEY %}
+<script>
+  function initRequestDetailMap() {
+    const pos = { lat: {{ request_item.latitude }}, lng: {{ request_item.longitude }} };
+    const map = new google.maps.Map(document.getElementById("request-map"), {
+      center: pos,
+      zoom: 15,
+    });
+    new google.maps.Marker({
+      position: pos,
+      map: map,
+      title: "{{ request_item.title|escapejs }}",
+    });
+  }
+</script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY|urlencode }}&callback=initRequestDetailMap"></script>
+{% endif %}
+{% endblock %}

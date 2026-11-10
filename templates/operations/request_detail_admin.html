@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Review Request #{{ request_item.pk }} · Admin{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <span class="role-pill">Request Review &amp; Dispatch</span>
+        <h1>Request #{{ request_item.pk }}: {{ request_item.title }}</h1>
+        <p>Submitted by <strong>{{ request_item.citizen.get_full_name|default:request_item.citizen.username }}</strong> on {{ request_item.created_at|date:"F j, Y, g:i A" }}</p>
+      </div>
+      <div>
+        <span class="badge badge-{{ request_item.status|lower }}" style="font-size: 1rem; padding: 6px 12px;">
+          {{ request_item.get_status_display }}
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container" style="max-width: 960px;">
+  <div class="grid-cols-2">
+    <!-- Left Column: Details & Actions -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Request Specifications</h3>
+      </div>
+      <p style="margin-bottom: 8px;"><strong>Citizen Phone:</strong> {{ request_item.citizen.phone|default:"Not provided" }}</p>
+      <p style="margin-bottom: 8px;"><strong>Citizen Email:</strong> {{ request_item.citizen.email }}</p>
+      <p style="margin-bottom: 12px;"><strong>Cause:</strong> {{ request_item.cause }}</p>
+
+      <p style="margin-bottom: 6px;"><strong>Description:</strong></p>
+      <div style="background-color: var(--bg-main); padding: 12px; border-radius: 4px; margin-bottom: 16px;">
+        {{ request_item.description|linebreaks }}
+      </div>
+
+      {% if request_item.cause == "Scheduled Waste Pickup" %}
+        <div style="background-color: var(--primary-light); padding: 12px; border-radius: 4px; margin-bottom: 16px; border: 1px solid #C8E6C9;">
+          <h4 style="color: var(--primary); margin-bottom: 6px;">Scheduled Collection Details</h4>
+          <p style="margin-bottom: 4px;"><strong>Preferred Date:</strong> {{ request_item.preferred_pickup_date|default:"Not specified" }}</p>
+          <p style="margin-bottom: 4px;"><strong>Preferred Time:</strong> {{ request_item.preferred_pickup_time|default:"Not specified" }}</p>
+          <p style="margin-bottom: 0;"><strong>Category:</strong> {{ request_item.waste_category|default:"General" }}</p>
+        </div>
+      {% endif %}
+
+      <p style="margin-bottom: 6px;"><strong>Location / Address:</strong> {{ request_item.address|default:"Specified via coordinates" }}</p>
+      <p style="margin-bottom: 16px; font-size: 0.85rem; color: var(--text-muted);">
+        Coordinates: {{ request_item.latitude }}, {{ request_item.longitude }}
+      </p>
+
+      <!-- Admin Actions Section -->
+      <div style="border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px;">
+        <h4>Administrative Actions</h4>
+
+        {% if request_item.status in "SUBMITTED,UNDER_REVIEW" %}
+          <form method="post" style="margin-top: 12px;">
+            {% csrf_token %}
+            <div class="form-group">
+              <label for="admin_remarks">Review Remarks (optional for approval, required for rejection)</label>
+              <textarea name="admin_remarks" id="admin_remarks" rows="2" class="form-control" placeholder="Add remarks for citizen..."></textarea>
+            </div>
+            <div class="btn-group">
+              <button type="submit" name="action" value="approve" class="btn btn-primary">Approve Request</button>
+              <button type="submit" name="action" value="reject" class="btn btn-danger">Reject Request</button>
+            </div>
+          </form>
+        {% elif request_item.status == "APPROVED" %}
+          {% if not task %}
+            <p style="color: var(--status-green); font-weight: 600; margin-bottom: 10px;">
+              Request is APPROVED. You can now generate an operational task.
+            </p>
+            <form method="post">
+              {% csrf_token %}
+              <button type="submit" name="action" value="generate_task" class="btn btn-primary">
+                + Generate Task From This Request
+              </button>
+            </form>
+          {% else %}
+            <div style="background-color: var(--primary-light); padding: 12px; border-radius: 4px; margin-top: 10px;">
+              <p style="color: var(--primary); font-weight: 600; margin-bottom: 4px;">
+                Task #{{ task.pk }} has already been generated.
+              </p>
+              <a href="{% url 'operations:task_detail' task.pk %}" class="btn btn-secondary btn-sm">View Task #{{ task.pk }} &rarr;</a>
+            </div>
+          {% endif %}
+        {% else %}
+          <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 8px;">
+            Current status is <strong>{{ request_item.get_status_display }}</strong>.
+            {% if task %}
+              <br><a href="{% url 'operations:task_detail' task.pk %}">View Associated Task #{{ task.pk }}</a>
+            {% endif %}
+          </p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Right Column: Photograph & Map -->
+    <div>
+      {% if request_item.photo %}
+        <div class="card">
+          <div class="card-header">
+            <h3>Citizen Uploaded Photo</h3>
+          </div>
+          <img src="{{ request_item.photo.url }}" alt="Request Photo" style="width: 100%; max-height: 280px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border);">
+        </div>
+      {% endif %}
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Geographic Location</h3>
+        </div>
+        <div id="admin-req-map" style="height: 250px; border: 1px solid var(--border); border-radius: 4px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top: 20px;">
+    <a href="{% url 'operations:request_management' %}" class="btn btn-secondary">&larr; Back to Requests</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if GOOGLE_MAPS_API_KEY %}
+<script>
+  function initAdminReqMap() {
+    const pos = { lat: {{ request_item.latitude }}, lng: {{ request_item.longitude }} };
+    const map = new google.maps.Map(document.getElementById("admin-req-map"), {
+      center: pos,
+      zoom: 15,
+    });
+    new google.maps.Marker({
+      position: pos,
+      map: map,
+      title: "{{ request_item.title|escapejs }}",
+    });
+  }
+</script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY|urlencode }}&callback=initAdminReqMap"></script>
+{% endif %}
+{% endblock %}

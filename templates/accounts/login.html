@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Sign In · SWMS{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 480px; margin-top: 40px;">
+  <div class="card">
+    <div class="card-header">
+      <h2>Sign In</h2>
+    </div>
+    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+      Access your Citizen, Worker, or Administrator dashboard.
+    </p>
+
+    <form method="post" action="{% url 'accounts:login' %}">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="form-group">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.errors %}
+            {% for error in field.errors %}
+              <div class="form-error">{{ error }}</div>
+            {% endfor %}
+          {% endif %}
+        </div>
+      {% endfor %}
+
+      {% if form.non_field_errors %}
+        {% for error in form.non_field_errors %}
+          <div class="alert alert-danger">{{ error }}</div>
+        {% endfor %}
+      {% endif %}
+
+      <div style="margin-top: 20px;">
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
+      </div>
+    </form>
+
+    <div style="margin-top: 20px; font-size: 0.9rem; text-align: center; border-top: 1px solid var(--border); padding-top: 14px;">
+      <p style="margin-bottom: 6px;">
+        <a href="{% url 'accounts:password_reset' %}">Forgot password?</a>
+      </p>
+      <p style="color: var(--text-muted);">
+        New citizen? <a href="{% url 'accounts:register' %}">Register here</a>
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

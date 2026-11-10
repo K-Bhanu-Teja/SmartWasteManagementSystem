@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Edit Dustbin {{ dustbin.name }} · Admin{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <span class="role-pill">Asset Management</span>
+    <h1>Edit Dustbin: {{ dustbin.name }}</h1>
+    <p>Update coordinates, description, cleaning status, and review cleaning history records.</p>
+  </div>
+</section>
+
+<div class="container" style="max-width: 900px;">
+  <div class="grid-cols-2">
+    <!-- Edit Form -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Dustbin Configuration</h3>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <div class="form-group">
+          <label for="{{ form.name.id_for_label }}">Dustbin Name / Code</label>
+          {{ form.name }}
+          {% if form.name.errors %}<div style="color: #c62828; font-size: 0.82rem;">{{ form.name.errors.0 }}</div>{% endif %}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.description.id_for_label }}">Description</label>
+          {{ form.description }}
+          {% if form.description.errors %}<div style="color: #c62828; font-size: 0.82rem;">{{ form.description.errors.0 }}</div>{% endif %}
+        </div>
+
+        <div class="form-group">
+          <label><strong>Dustbin Location on Map:</strong></label>
+          <p class="form-hint" style="margin-top: 2px; margin-bottom: 8px; font-size: 0.82rem; color: var(--text-muted);">
+            Click or drag marker to reposition this dustbin.
+          </p>
+          <div id="dustbin-edit-map" style="width: 100%; height: 260px; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 0.6rem; background: #e8f5e9;"></div>
+        </div>
+
+        <div class="grid-cols-2">
+          <div class="form-group">
+            <label for="{{ form.latitude.id_for_label }}">Latitude</label>
+            {{ form.latitude }}
+            {% if form.latitude.errors %}<div style="color: #c62828; font-size: 0.82rem;">{{ form.latitude.errors.0 }}</div>{% endif %}
+          </div>
+          <div class="form-group">
+            <label for="{{ form.longitude.id_for_label }}">Longitude</label>
+            {{ form.longitude }}
+            {% if form.longitude.errors %}<div style="color: #c62828; font-size: 0.82rem;">{{ form.longitude.errors.0 }}</div>{% endif %}
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="{{ form.last_cleaned_at.id_for_label }}">Last Cleaned Date &amp; Time</label>
+          {{ form.last_cleaned_at }}
+          <div class="form-help">Current value: {{ dustbin.last_cleaned_at|date:"M j, Y g:i A"|default:"None" }}</div>
+        </div>
+        <div class="form-group">
+          <label>{{ form.is_active }} Active Dustbin</label>
+        </div>
+        <div class="btn-group" style="margin-top: 16px;">
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+          <a href="{% url 'operations:dustbin_management' %}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+
+    <!-- Cleaning History -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Cleaning History ({{ cleaning_history.count }})</h3>
+      </div>
+      {% if cleaning_history %}
+        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date &amp; Time</th>
+                <th>Cleaned By</th>
+                <th>Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for record in cleaning_history %}
+                <tr>
+                  <td style="font-size: 0.85rem;">{{ record.cleaned_at|date:"M j, Y g:i A" }}</td>
+                  <td>{{ record.cleaned_by.get_full_name|default:record.cleaned_by.username|default:"System" }}</td>
+                  <td style="font-size: 0.85rem;">{{ record.remarks|default:"Completed" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">No cleaning history records logged yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if GOOGLE_MAPS_API_KEY %}
+<script>
+  function initDustbinEditMap() {
+    const latInput = document.getElementById("id_dustbin_lat") || document.getElementById("id_latitude");
+    const lngInput = document.getElementById("id_longitude") || document.getElementById("id_dustbin_lng");
+
+    const defaultCenter = { lat: 16.833944, lng: 81.531444 };
+    const curLat = parseFloat(latInput ? latInput.value : NaN);
+    const curLng = parseFloat(lngInput ? lngInput.value : NaN);
+
+    const initialPos = (!isNaN(curLat) && !isNaN(curLng))
+      ? { lat: curLat, lng: curLng }
+      : defaultCenter;
+
+    const map = new google.maps.Map(document.getElementById("dustbin-edit-map"), {
+      center: initialPos,
+      zoom: 15,
+      streetViewControl: false,
+      mapTypeControl: false,
+    });
+
+    const marker = new google.maps.Marker({
+      position: initialPos,
+      map: map,
+      draggable: true,
+      title: "Dustbin Location (Drag to adjust)",
+      icon: {
+        path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+        scale: 6,
+        fillColor: "#2E7D32",
+        fillOpacity: 1,
+        strokeWeight: 2,
+        strokeColor: "#FFFFFF",
+      }
+    });
+
+    function setCoords(lat, lng) {
+      if (latInput) latInput.value = lat.toFixed(6);
+      if (lngInput) lngInput.value = lng.toFixed(6);
+    }
+
+    marker.addListener("dragend", (e) => {
+      setCoords(e.latLng.lat(), e.latLng.lng());
+    });
+
+    map.addListener("click", (e) => {
+      marker.setPosition(e.latLng);
+      setCoords(e.latLng.lat(), e.latLng.lng());
+    });
+
+    function syncInputs() {
+      const lat = parseFloat(latInput ? latInput.value : NaN);
+      const lng = parseFloat(lngInput ? lngInput.value : NaN);
+      if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        const pos = { lat: lat, lng: lng };
+        marker.setPosition(pos);
+        map.panTo(pos);
+      }
+    }
+
+    if (latInput) latInput.addEventListener("input", syncInputs);
+    if (lngInput) lngInput.addEventListener("input", syncInputs);
+  }
+</script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY|urlencode }}&callback=initDustbinEditMap"></script>
+{% endif %}
+{% endblock %}

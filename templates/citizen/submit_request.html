@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}Submit Waste Complaint or Service Request · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <span class="role-pill">Citizen Service Desk</span>
+    <h1>Submit Request or Complaint</h1>
+    <p>Report sanitation issues or book a scheduled household waste collection.</p>
+  </div>
+</section>
+
+<div class="container" style="max-width: 860px;">
+  <div class="card">
+    <div class="card-header">
+      <h2>Service Request Details</h2>
+    </div>
+
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+
+      <div class="form-group">
+        <label for="{{ form.title.id_for_label }}">Request Title *</label>
+        {{ form.title }}
+        {% if form.title.errors %}<div class="form-error">{{ form.title.errors }}</div>{% endif %}
+      </div>
+
+      <div class="form-group">
+        <label for="{{ form.cause.id_for_label }}">Request Cause *</label>
+        {{ form.cause }}
+        {% if form.cause.errors %}<div class="form-error">{{ form.cause.errors }}</div>{% endif %}
+      </div>
+
+      <!-- Conditional Scheduled Waste Pickup Fields -->
+      <div id="scheduled-pickup-fields" style="display: none; background-color: var(--primary-light); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid #C8E6C9;">
+        <h4 style="color: var(--primary); margin-bottom: 12px;">Scheduled Household Pickup Details</h4>
+        <div class="grid-cols-3">
+          <div class="form-group">
+            <label for="{{ form.preferred_pickup_date.id_for_label }}">Preferred Date *</label>
+            {{ form.preferred_pickup_date }}
+            {% if form.preferred_pickup_date.errors %}<div class="form-error">{{ form.preferred_pickup_date.errors }}</div>{% endif %}
+          </div>
+          <div class="form-group">
+            <label for="{{ form.preferred_pickup_time.id_for_label }}">Preferred Time</label>
+            {{ form.preferred_pickup_time }}
+            {% if form.preferred_pickup_time.errors %}<div class="form-error">{{ form.preferred_pickup_time.errors }}</div>{% endif %}
+          </div>
+          <div class="form-group">
+            <label for="{{ form.waste_category.id_for_label }}">Waste Category</label>
+            {{ form.waste_category }}
+            {% if form.waste_category.errors %}<div class="form-error">{{ form.waste_category.errors }}</div>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="{{ form.description.id_for_label }}">Description *</label>
+        {{ form.description }}
+        {% if form.description.errors %}<div class="form-error">{{ form.description.errors }}</div>{% endif %}
+      </div>
+
+      <div class="form-group">
+        <label for="{{ form.photo.id_for_label }}">Photograph (optional)</label>
+        {{ form.photo }}
+        <div class="form-help">Upload a clear photo of the waste or location.</div>
+        {% if form.photo.errors %}<div class="form-error">{{ form.photo.errors }}</div>{% endif %}
+      </div>
+
+      <div class="form-group">
+        <label for="{{ form.address.id_for_label }}">Location / Landmark</label>
+        {{ form.address }}
+        {% if form.address.errors %}<div class="form-error">{{ form.address.errors }}</div>{% endif %}
+      </div>
+
+      <!-- Map Location Picker -->
+      <div class="form-group">
+        <label>Geographic Location Coordinates *</label>
+        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+          <button type="button" id="btn-current-location" class="btn btn-secondary btn-sm">
+            📍 Use My Current Location
+          </button>
+          <span id="geo-status" style="font-size: 0.85rem; color: var(--text-muted); align-self: center;"></span>
+        </div>
+
+        <div class="grid-cols-2" style="margin-bottom: 10px;">
+          <div>
+            <label style="font-size: 0.82rem; color: var(--text-muted);">Latitude</label>
+            {{ form.latitude }}
+            {% if form.latitude.errors %}<div class="form-error">{{ form.latitude.errors }}</div>{% endif %}
+          </div>
+          <div>
+            <label style="font-size: 0.82rem; color: var(--text-muted);">Longitude</label>
+            {{ form.longitude }}
+            {% if form.longitude.errors %}<div class="form-error">{{ form.longitude.errors }}</div>{% endif %}
+          </div>
+        </div>
+
+        <div id="picker-map" style="height: 320px; border: 1px solid var(--border); border-radius: 6px;"></div>
+        <div class="form-help">Click anywhere on the map or drag the marker to pin the exact location.</div>
+      </div>
+
+      <div style="margin-top: 24px; display: flex; gap: 12px;">
+        <button type="submit" class="btn btn-primary">Submit Request</button>
+        <a href="{% url 'citizen:dashboard' %}" class="btn btn-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Dynamic display for Scheduled Waste Pickup conditional fields
+  const causeSelect = document.getElementById("id_cause");
+  const pickupSection = document.getElementById("scheduled-pickup-fields");
+
+  function togglePickupFields() {
+    if (causeSelect.value === "Scheduled Waste Pickup") {
+      pickupSection.style.display = "block";
+    } else {
+      pickupSection.style.display = "none";
+    }
+  }
+
+  causeSelect.addEventListener("change", togglePickupFields);
+  togglePickupFields();
+
+  // Location Picker Map
+  let pickerMap;
+  let pickerMarker;
+  const latInput = document.getElementById("id_latitude");
+  const lngInput = document.getElementById("id_longitude");
+
+  function initPickerMap() {
+    let initialLat = parseFloat(latInput.value) || 16.833944;
+    let initialLng = parseFloat(lngInput.value) || 81.531444;
+
+    const initialPos = { lat: initialLat, lng: initialLng };
+
+    pickerMap = new google.maps.Map(document.getElementById("picker-map"), {
+      center: initialPos,
+      zoom: 14,
+    });
+
+    pickerMarker = new google.maps.Marker({
+      position: initialPos,
+      map: pickerMap,
+      draggable: true,
+      title: "Selected Location",
+    });
+
+    // Update inputs on drag
+    pickerMarker.addListener("dragend", (event) => {
+      latInput.value = event.latLng.lat().toFixed(6);
+      lngInput.value = event.latLng.lng().toFixed(6);
+    });
+
+    // Click map to reposition marker
+    pickerMap.addListener("click", (event) => {
+      pickerMarker.setPosition(event.latLng);
+      latInput.value = event.latLng.lat().toFixed(6);
+      lngInput.value = event.latLng.lng().toFixed(6);
+    });
+  }
+
+  // Use My Current Location
+  document.getElementById("btn-current-location").addEventListener("click", () => {
+    const status = document.getElementById("geo-status");
+    if (!navigator.geolocation) {
+      status.textContent = "Geolocation is not supported by your browser.";
+      return;
+    }
+    status.textContent = "Detecting current position...";
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        latInput.value = lat.toFixed(6);
+        lngInput.value = lng.toFixed(6);
+        const pos = { lat: lat, lng: lng };
+        if (pickerMarker) {
+          pickerMarker.setPosition(pos);
+          pickerMap.setCenter(pos);
+          pickerMap.setZoom(16);
+        }
+        status.textContent = "Location updated!";
+      },
+      (err) => {
+        status.textContent = "Could not fetch location: " + err.message;
+      }
+    );
+  });
+</script>
+{% if GOOGLE_MAPS_API_KEY %}
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY|urlencode }}&callback=initPickerMap"></script>
+{% endif %}
+{% endblock %}

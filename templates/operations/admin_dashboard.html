@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Administrator Dashboard · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <span class="role-pill">Central Administration</span>
+        <h1>Municipal Operations Dashboard</h1>
+        <p>Real-time statistics, request triage, crew dispatch, and task monitoring.</p>
+      </div>
+      <div class="btn-group">
+        <a href="{% url 'operations:request_management' %}" class="btn btn-primary btn-sm">Manage Requests</a>
+        <a href="{% url 'operations:task_management' %}" class="btn btn-secondary btn-sm">Task Desk</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <!-- 10.1 Actual Database Statistics -->
+  <div class="grid-cols-4" style="margin-bottom: 24px;">
+    <div class="stat-card">
+      <div class="stat-label">Total Dustbins</div>
+      <div class="stat-value">{{ total_dustbins }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Requests</div>
+      <div class="stat-value">{{ total_requests }}</div>
+    </div>
+    <div class="stat-card" style="border-left-color: var(--status-orange);">
+      <div class="stat-label">Pending Requests</div>
+      <div class="stat-value" style="color: var(--status-orange);">{{ pending_requests }}</div>
+    </div>
+    <div class="stat-card" style="border-left-color: var(--status-green);">
+      <div class="stat-label">Available Workers</div>
+      <div class="stat-value" style="color: var(--status-green);">{{ available_workers }}</div>
+    </div>
+  </div>
+
+  <div class="grid-cols-4" style="margin-bottom: 28px;">
+    <div class="stat-card" style="border-left-color: var(--status-blue);">
+      <div class="stat-label">Assigned Workers</div>
+      <div class="stat-value" style="color: var(--status-blue);">{{ assigned_workers }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Active Crews</div>
+      <div class="stat-value">{{ active_crews }}</div>
+    </div>
+    <div class="stat-card" style="border-left-color: var(--status-orange);">
+      <div class="stat-label">Pending Tasks</div>
+      <div class="stat-value" style="color: var(--status-orange);">{{ pending_tasks }}</div>
+    </div>
+    <div class="stat-card" style="border-left-color: var(--status-green);">
+      <div class="stat-label">Completed Tasks</div>
+      <div class="stat-value" style="color: var(--status-green);">{{ completed_tasks }}</div>
+    </div>
+  </div>
+
+  <!-- Operational Navigation Cards -->
+  <div class="grid-cols-3" style="margin-bottom: 28px;">
+    <div class="card">
+      <div class="card-header">
+        <h3>Request Desk</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 14px;">
+        Review citizen complaints & scheduled waste pickups, approve or reject submissions, and generate tasks.
+      </p>
+      <a href="{% url 'operations:request_management' %}" class="btn btn-secondary btn-sm">Open Requests &rarr;</a>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Dynamic Crews</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 14px;">
+        Form temporary crews from active workers, select crew leaders, assign workloads, and dissolve completed crews.
+      </p>
+      <a href="{% url 'operations:crew_management' %}" class="btn btn-secondary btn-sm">Manage Crews &rarr;</a>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Centralized Tasks</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 14px;">
+        Create independent tasks, allocate to workers or crews, track execution progress, and verify completions.
+      </p>
+      <a href="{% url 'operations:task_management' %}" class="btn btn-secondary btn-sm">Open Tasks &rarr;</a>
+    </div>
+  </div>
+
+  <div class="grid-cols-2">
+    <!-- Recent Requests -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Recent Citizen Requests</h3>
+        <a href="{% url 'operations:request_management' %}" class="btn btn-secondary btn-sm">View All</a>
+      </div>
+      {% if recent_requests %}
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Cause</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for req in recent_requests %}
+                <tr>
+                  <td><strong>{{ req.title }}</strong></td>
+                  <td>{{ req.cause }}</td>
+                  <td><span class="badge badge-{{ req.status|lower }}">{{ req.get_status_display }}</span></td>
+                  <td><a href="{% url 'operations:request_detail_admin' req.pk %}" class="btn btn-secondary btn-sm">Review</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">No requests submitted yet.</p>
+      {% endif %}
+    </div>
+
+    <!-- System Notifications -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Operational Notifications</h3>
+      </div>
+      {% if notifications %}
+        <div style="max-height: 280px; overflow-y: auto;">
+          {% for notif in notifications %}
+            <div class="notification-item">
+              <span class="notification-message">
+                {% if notif.link %}<a href="{{ notif.link }}">{{ notif.message }}</a>{% else %}{{ notif.message }}{% endif %}
+              </span>
+              <span class="notification-date">{{ notif.created_at|date:"M j, g:i A" }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">No recent notifications.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Vehicle Management · Admin · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <span class="role-pill">Fleet Operations</span>
+    <h1>Fleet &amp; Vehicle Management</h1>
+    <p>Register collection vehicles, track availability, and dynamically allocate drivers.</p>
+  </div>
+</section>
+
+<div class="container">
+  <div class="grid-cols-2">
+    <!-- Register Vehicle Form -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Register New Vehicle</h2>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="submit_vehicle" value="1">
+        <div class="form-group">
+          <label for="{{ vehicle_form.registration_number.id_for_label }}">Registration Number *</label>
+          {{ vehicle_form.registration_number }}
+          {% if vehicle_form.registration_number.errors %}<div class="form-error">{{ vehicle_form.registration_number.errors }}</div>{% endif %}
+        </div>
+        <div class="form-group">
+          <label for="{{ vehicle_form.vehicle_type.id_for_label }}">Vehicle Type *</label>
+          {{ vehicle_form.vehicle_type }}
+        </div>
+        <div class="form-group">
+          <label>{{ vehicle_form.is_available }} Available for Assignment</label>
+        </div>
+        <button type="submit" class="btn btn-primary">+ Register Vehicle</button>
+      </form>
+    </div>
+
+    <!-- Dynamic Driver Allocation Form -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Allocate Driver to Vehicle</h2>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 14px;">
+        Drivers are not permanently tied to vehicles. Dynamically assign an unallocated driver to a vehicle.
+      </p>
+
+      {% if available_drivers %}
+        <form method="post" action="{% url 'operations:assign_vehicle_driver' %}">
+          {% csrf_token %}
+          <div class="form-group">
+            <label for="vehicle_id">Select Vehicle *</label>
+            <select name="vehicle_id" id="vehicle_id" class="form-control" required>
+              <option value="">Choose Vehicle...</option>
+              {% for row in vehicles %}
+                <option value="{{ row.vehicle.pk }}">
+                  {{ row.vehicle.registration_number }} &mdash; {{ row.vehicle.vehicle_type }}
+                  {% if row.current_assignment %} (Reassign from {{ row.current_assignment.driver.username }}){% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="driver_id">Select Available Driver *</label>
+            <select name="driver_id" id="driver_id" class="form-control" required>
+              <option value="">Choose Driver...</option>
+              {% for driver in available_drivers %}
+                <option value="{{ driver.pk }}">
+                  {{ driver.get_full_name|default:driver.username }} ({{ driver.email }})
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <button type="submit" class="btn btn-primary">Assign Driver</button>
+        </form>
+      {% else %}
+        <div style="background-color: #FFF3E0; border: 1px solid #FFE0B2; padding: 12px; border-radius: 4px;">
+          <p style="color: var(--status-orange); font-weight: 600; margin: 0;">All registered drivers are currently assigned to vehicles.</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Vehicles Table -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Registered Vehicles &amp; Assignments ({{ vehicles|length }})</h3>
+    </div>
+    {% if vehicles %}
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Registration</th>
+              <th>Vehicle Type</th>
+              <th>Current Driver</th>
+              <th>Assignment Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in vehicles %}
+              <tr>
+                <td><strong>{{ row.vehicle.registration_number }}</strong></td>
+                <td>{{ row.vehicle.vehicle_type|default:"Sanitation Vehicle" }}</td>
+                <td>
+                  {% if row.current_assignment %}
+                    <strong>{{ row.current_assignment.driver.get_full_name|default:row.current_assignment.driver.username }}</strong>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">Assigned: {{ row.current_assignment.assigned_at|date:"M j, g:i A" }}</div>
+                  {% else %}
+                    <span style="color: var(--text-muted);">Unassigned</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if row.current_assignment %}
+                    <span class="badge badge-active">In Service</span>
+                  {% else %}
+                    <span class="badge badge-approved">Available</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if row.current_assignment %}
+                    <form method="post" action="{% url 'operations:release_vehicle_assignment' row.current_assignment.pk %}" onsubmit="return confirm('Release this vehicle assignment?');">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-secondary btn-sm">Release Driver</button>
+                    </form>
+                  {% else %}
+                    <span style="font-size: 0.85rem; color: var(--text-muted);">&mdash;</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p style="color: var(--text-muted); font-size: 0.9rem;">No vehicles registered yet.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

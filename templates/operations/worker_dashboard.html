@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block title %}Worker Dashboard · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <span class="role-pill">Field Workforce</span>
+        <h1>Worker Dashboard</h1>
+        <p>Manage your daily availability, view allocated tasks, and submit completion reports.</p>
+      </div>
+      <div>
+        <span class="badge badge-{{ profile.availability|lower }}" style="font-size: 1rem; padding: 6px 14px;">
+          Status: {{ profile.get_availability_display }}
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <div class="grid-cols-3" style="margin-bottom: 24px;">
+    <!-- 11.1 Worker Profile Card -->
+    <div class="card">
+      <div class="card-header">
+        <h3>My Profile</h3>
+      </div>
+      <p style="margin-bottom: 6px;"><strong>Name:</strong> {{ user.get_full_name|default:user.username }}</p>
+      <p style="margin-bottom: 6px;"><strong>Worker ID:</strong> {{ profile.worker_id|default:user.pk }}</p>
+      <p style="margin-bottom: 6px;"><strong>Job Role:</strong> <span class="user-badge">{{ profile.get_designation_display }}</span></p>
+      <p style="margin-bottom: 6px;"><strong>Phone:</strong> {{ profile.phone|default:user.phone|default:"-" }}</p>
+      <p style="margin-bottom: 0;"><strong>Email:</strong> {{ user.email }}</p>
+    </div>
+
+    <!-- 11.2 Availability Management -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Availability Controls</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 14px;">
+        Indicate whether you are on duty and ready for temporary crew deployment or direct tasks.
+      </p>
+
+      {% if active_crew %}
+        <div style="background-color: #E3F2FD; border: 1px solid #BBDEFB; padding: 12px; border-radius: 4px; margin-bottom: 12px;">
+          <p style="color: var(--status-blue); font-size: 0.88rem; margin: 0; font-weight: 600;">
+            Currently deployed in Active Crew '{{ active_crew.name }}'. Status is locked to ASSIGNED.
+          </p>
+        </div>
+      {% endif %}
+
+      <div class="btn-group" style="flex-direction: column;">
+        <form method="post" action="{% url 'operations:worker_set_availability' %}">
+          {% csrf_token %}
+          <input type="hidden" name="availability" value="ACTIVE">
+          <button type="submit" class="btn btn-primary" style="width: 100%; margin-bottom: 8px;" {% if profile.availability == "ACTIVE" %}disabled{% endif %}>
+            ✔ I'M AVAILABLE
+          </button>
+        </form>
+
+        <form method="post" action="{% url 'operations:worker_set_availability' %}">
+          {% csrf_token %}
+          <input type="hidden" name="availability" value="INACTIVE">
+          <button type="submit" class="btn btn-secondary" style="width: 100%;" {% if profile.availability == "INACTIVE" or active_crew %}disabled{% endif %}>
+            ✖ I'M UNAVAILABLE
+          </button>
+        </form>
+      </div>
+
+      {% if profile.availability_updated_at %}
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 10px;">
+          Last updated: {{ profile.availability_updated_at|date:"M j, g:i A" }}
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Notifications -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Notifications</h3>
+      </div>
+      {% if notifications %}
+        <div style="max-height: 200px; overflow-y: auto;">
+          {% for notif in notifications %}
+            <div class="notification-item">
+              <span class="notification-message">{{ notif.message }}</span>
+              <span class="notification-date">{{ notif.created_at|date:"M j, g:i A" }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">No new notifications.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- 11.5 Active Crew Section (Shown only when in active crew) -->
+  {% if active_crew %}
+    <div class="card" style="border-left: 4px solid var(--primary); margin-bottom: 24px;">
+      <div class="card-header">
+        <div>
+          <span class="role-pill">Crew Deployment</span>
+          <h2 style="color: var(--primary);">Active Crew: {{ active_crew.name }}</h2>
+        </div>
+        {% if is_crew_leader %}
+          <span class="badge badge-approved" style="font-size: 0.9rem;">YOU ARE CREW LEADER</span>
+        {% endif %}
+      </div>
+
+      <p style="margin-bottom: 8px;">
+        <strong>Crew Leader:</strong> {{ active_crew.crew_leader.get_full_name|default:active_crew.crew_leader.username }}
+      </p>
+
+      <p style="margin-bottom: 8px;"><strong>Crew Members:</strong></p>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;">
+        {% for m in active_crew.members.all %}
+          <span class="user-badge" style="background-color: var(--bg-main); color: var(--text-main); border: 1px solid var(--border);">
+            {{ m.user.get_full_name|default:m.user.username }}
+            {% if m.is_leader %}(Leader){% else %}({{ m.user.worker_profile.get_designation_display }}){% endif %}
+          </span>
+        {% endfor %}
+      </div>
+
+      {% if is_crew_leader %}
+        <div style="background-color: var(--primary-light); padding: 10px; border-radius: 4px; font-size: 0.88rem; color: var(--primary);">
+          <strong>Crew Leader Permissions:</strong> You can start and submit completion reports for tasks assigned to this crew.
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <!-- 11.3 My Tasks Section -->
+  <div class="card">
+    <div class="card-header">
+      <h2>My Tasks</h2>
+    </div>
+
+    <!-- Assigned Tasks (Awaiting Start) -->
+    <div style="margin-bottom: 24px;">
+      <h3 style="font-size: 1.1rem; color: var(--status-blue); margin-bottom: 12px;">
+        Assigned Tasks (Ready to Start) &mdash; {{ assigned_tasks.count }}
+      </h3>
+      {% if assigned_tasks %}
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Task Type</th>
+                <th>Description</th>
+                <th>Location</th>
+                <th>Due Date</th>
+                <th>Assignment</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for task in assigned_tasks %}
+                <tr>
+                  <td>#{{ task.pk }}</td>
+                  <td><strong>{{ task.category }}</strong></td>
+                  <td>{{ task.description|truncatechars:60 }}</td>
+                  <td>{{ task.location_name|default:"Coords" }}</td>
+                  <td>{{ task.due_date|default:"-" }}</td>
+                  <td>
+                    {% if task.assigned_crew %}
+                      Crew ({{ task.assigned_crew.name }})
+                    {% else %}
+                      Direct
+                    {% endif %}
+                  </td>
+                  <td>
+                    <!-- 11.4 Start Task Button -->
+                    <form method="post" action="{% url 'operations:worker_start_task' task.pk %}">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-primary btn-sm">START TASK</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">No assigned tasks awaiting start.</p>
+      {% endif %}
+    </div>
+
+    <!-- In-Progress Tasks -->
+    <div style="margin-bottom: 24px;">
+      <h3 style="font-size: 1.1rem; color: var(--status-orange); margin-bottom: 12px;">
+        In-Progress Tasks (Active Work) &mdash; {{ in_progress_tasks.count }}
+      </h3>
+      {% if in_progress_tasks %}
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Task Type</th>
+                <th>Description</th>
+                <th>Location</th>
+                <th>Started At</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for task in in_progress_tasks %}
+                <tr>
+                  <td>#{{ task.pk }}</td>
+                  <td><strong>{{ task.category }}</strong></td>
+                  <td>{{ task.description|truncatechars:60 }}</td>
+                  <td>{{ task.location_name|default:"Coords" }}</td>
+                  <td>{{ task.started_at|date:"M j, g:i A"|default:"Just now" }}</td>
+                  <td>
+                    <!-- 11.4 Complete Task Button -->
+                    <a href="{% url 'operations:worker_complete_task' task.pk %}" class="btn btn-primary btn-sm">
+                      COMPLETE TASK &rarr;
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">No tasks currently in progress.</p>
+      {% endif %}
+    </div>
+
+    <!-- Completed Tasks -->
+    <div>
+      <h3 style="font-size: 1.1rem; color: var(--status-green); margin-bottom: 12px;">
+        Completed Tasks History &mdash; {{ completed_tasks.count }}
+      </h3>
+      {% if completed_tasks %}
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Task Type</th>
+                <th>Description</th>
+                <th>Completed At</th>
+                <th>Admin Verification</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for task in completed_tasks %}
+                <tr>
+                  <td>#{{ task.pk }}</td>
+                  <td><strong>{{ task.category }}</strong></td>
+                  <td>{{ task.description|truncatechars:60 }}</td>
+                  <td>{{ task.completed_at|date:"M j, Y g:i A" }}</td>
+                  <td>
+                    {% if task.verified_by_admin %}
+                      <span class="badge badge-approved">Verified</span>
+                    {% else %}
+                      <span class="badge badge-submitted">Pending Review</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">No completed tasks history.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

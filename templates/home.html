@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Smart Waste Management System · Home{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <span class="role-pill">Clean City Initiative</span>
+    <h1>Smart Waste Management System</h1>
+    <p>A centralized platform connecting citizens, municipal administrators, and sanitation workers for cleaner, healthier neighborhoods.</p>
+    <div style="margin-top: 16px; display: flex; gap: 12px;">
+      <a href="{% url 'accounts:login' %}" class="btn btn-primary">Sign In</a>
+      <a href="{% url 'accounts:register' %}" class="btn btn-secondary">Register as Citizen</a>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <div class="card">
+    <div class="card-header">
+      <h2>Registered Public Dustbins</h2>
+    </div>
+    <div id="home-map" class="map-box"></div>
+    <div class="map-legend">
+      <div class="legend-item">
+        <span class="legend-dot dot-dustbin"></span>
+        <span>Public Dustbin (Click marker for cleaning details)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-cols-3">
+    <div class="card">
+      <div class="card-header">
+        <h3>For Citizens</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.95rem;">
+        Locate nearby dustbins on the interactive map, submit waste complaints or scheduled household pickups with photos, and track resolution.
+      </p>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>For Administrators</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.95rem;">
+        Review requests, generate tasks, register workers and vehicles, form dynamic crews, assign operations, and verify completion.
+      </p>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>For Workers</h3>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.95rem;">
+        Manage work availability (Available / Unavailable), view assigned tasks, update progress in real-time, and upload completion proofs.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if GOOGLE_MAPS_API_KEY %}
+<script>
+  function initHomeMap() {
+    const defaultCenter = { lat: 16.833944, lng: 81.531444 };
+    const map = new google.maps.Map(document.getElementById("home-map"), {
+      center: defaultCenter,
+      zoom: 14,
+    });
+
+    fetch("{% url 'citizen:dustbins_api' %}")
+      .then(res => res.json())
+      .then(data => {
+        if (data.dustbins && data.dustbins.length > 0) {
+          const bounds = new google.maps.LatLngBounds();
+          const infoWindow = new google.maps.InfoWindow();
+
+          data.dustbins.forEach(bin => {
+            const pos = { lat: bin.latitude, lng: bin.longitude };
+            const marker = new google.maps.Marker({
+              position: pos,
+              map: map,
+              title: bin.name,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 8,
+                fillColor: "#2E7D32",
+                fillOpacity: 1,
+                strokeWeight: 2,
+                strokeColor: "#FFFFFF",
+              }
+            });
+
+            marker.addListener("click", () => {
+              infoWindow.setContent(`
+                <div style="font-family: inherit; padding: 4px;">
+                  <h4 style="color: #2E7D32; margin-bottom: 4px;">${bin.name}</h4>
+                  <p style="margin: 0; font-size: 13px;">${bin.description || 'Public Dustbin'}</p>
+                  <p style="margin: 4px 0 0; font-size: 12px; color: #666;">
+                    <strong>Last Cleaned:</strong> ${bin.last_cleaned_at}
+                  </p>
+                </div>
+              `);
+              infoWindow.open(map, marker);
+            });
+
+            bounds.extend(pos);
+          });
+          map.fitBounds(bounds);
+        }
+      })
+      .catch(err => console.error("Error loading dustbins:", err));
+  }
+</script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY|urlencode }}&callback=initHomeMap"></script>
+{% else %}
+<script>
+  document.getElementById("home-map").innerHTML = '<div style="display:grid; place-items:center; height:100%; color:#666;">Google Maps API Key not configured.</div>';
+</script>
+{% endif %}
+{% endblock %}

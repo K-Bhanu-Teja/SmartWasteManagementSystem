@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Dynamic Crew Management · Admin · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <span class="role-pill">Workforce Operations</span>
+        <h1>Dynamic Crew Management</h1>
+        <p>Form temporary crews from available workers, designate crew leaders, assign tasks, and dissolve upon completion.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <div class="grid-cols-2">
+    <!-- Create Temporary Crew Form -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Form Temporary Crew</h2>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+        Select from available workers (ACTIVE status). Every crew must have exactly one designated leader.
+      </p>
+
+      {% if available_workers %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="create_crew">
+
+          <div class="form-group">
+            <label for="crew_name">Crew Name *</label>
+            <input type="text" name="crew_name" id="crew_name" class="form-control" placeholder="e.g. Rapid Response Crew A" required>
+          </div>
+
+          <div class="form-group">
+            <label for="crew_leader">Designate Crew Leader *</label>
+            <select name="crew_leader" id="crew_leader" class="form-control" required>
+              <option value="">Select a Leader...</option>
+              {% for worker in available_workers %}
+                <option value="{{ worker.pk }}">
+                  {{ worker.get_full_name|default:worker.username }} ({{ worker.worker_profile.get_designation_display }})
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Select Crew Members (Multi-select) *</label>
+            <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background-color: #FAFAFA;">
+              {% for worker in available_workers %}
+                <div style="margin-bottom: 6px;">
+                  <label style="font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" name="members" value="{{ worker.pk }}" class="member-checkbox">
+                    <span>{{ worker.get_full_name|default:worker.username }} &mdash; <small style="color: var(--text-muted);">{{ worker.worker_profile.get_designation_display }}</small></span>
+                  </label>
+                </div>
+              {% endfor %}
+            </div>
+            <div class="form-help">Tip: Check all workers who will belong to this temporary team.</div>
+          </div>
+
+          <button type="submit" class="btn btn-primary">+ Create Temporary Crew</button>
+        </form>
+      {% else %}
+        <div style="background-color: #FFF3E0; border: 1px solid #FFE0B2; padding: 14px; border-radius: 4px;">
+          <p style="color: var(--status-orange); font-weight: 600; margin-bottom: 4px;">No available workers.</p>
+          <p style="margin: 0; font-size: 0.88rem; color: var(--text-muted);">
+            All active workers are either assigned to existing crews or marked as unavailable.
+          </p>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Active Temporary Crews -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Active Temporary Crews ({{ active_crews.count }})</h3>
+      </div>
+      {% if active_crews %}
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Crew Name</th>
+                <th>Leader</th>
+                <th>Members</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for crew in active_crews %}
+                <tr>
+                  <td><strong>{{ crew.name }}</strong></td>
+                  <td>{{ crew.crew_leader.get_full_name|default:crew.crew_leader.username }}</td>
+                  <td>{{ crew.members.count }}</td>
+                  <td>
+                    <div class="btn-group">
+                      <a href="{% url 'operations:crew_detail' crew.pk %}" class="btn btn-secondary btn-sm">Details</a>
+                      <form method="post" action="{% url 'operations:dissolve_crew' crew.pk %}" onsubmit="return confirm('Dissolve {{ crew.name }}? Members will be set to Available.');" style="display:inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-danger btn-sm">Dissolve</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">No temporary crews currently active.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Historical Dissolved Crews -->
+  <div class="card" style="margin-top: 10px;">
+    <div class="card-header">
+      <h3>Historical Crew Records</h3>
+    </div>
+    {% if dissolved_crews %}
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Crew Name</th>
+              <th>Leader</th>
+              <th>Formed Date</th>
+              <th>Dissolved Date</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for crew in dissolved_crews %}
+              <tr>
+                <td>{{ crew.name }}</td>
+                <td>{{ crew.crew_leader.get_full_name|default:crew.crew_leader.username }}</td>
+                <td>{{ crew.started_at|date:"M j, Y" }}</td>
+                <td>{{ crew.dissolved_at|date:"M j, Y g:i A"|default:"-" }}</td>
+                <td><a href="{% url 'operations:crew_detail' crew.pk %}" class="btn btn-secondary btn-sm">Details</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p style="color: var(--text-muted); font-size: 0.9rem;">No dissolved crew history.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Ensure the designated leader is auto-checked in the members list
+  const leaderSelect = document.getElementById("crew_leader");
+  if (leaderSelect) {
+    leaderSelect.addEventListener("change", function() {
+      const selectedId = this.value;
+      document.querySelectorAll(".member-checkbox").forEach(cb => {
+        if (cb.value === selectedId) {
+          cb.checked = true;
+        }
+      });
+    });
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Task #{{ task.pk }} · Admin · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <span class="role-pill">Task Operations</span>
+        <h1>Task #{{ task.pk }}: {{ task.title }}</h1>
+        <p>Category: <strong>{{ task.category }}</strong> &middot; Created {{ task.created_at|date:"M j, Y g:i A" }}</p>
+      </div>
+      <div>
+        <span class="badge badge-{{ task.status|lower }}" style="font-size: 1rem; padding: 6px 12px;">
+          {{ task.get_status_display }}
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container" style="max-width: 960px;">
+  <div class="grid-cols-2">
+    <!-- Left Column: Details & Assignments -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Task Overview</h3>
+      </div>
+      <p style="margin-bottom: 8px;"><strong>Description / Instructions:</strong></p>
+      <div style="background-color: var(--bg-main); padding: 12px; border-radius: 4px; margin-bottom: 14px;">
+        {{ task.description|linebreaks }}
+      </div>
+
+      {% if task.request %}
+        <div style="background-color: var(--primary-light); padding: 12px; border-radius: 4px; margin-bottom: 14px; border: 1px solid #C8E6C9;">
+          <h4 style="color: var(--primary); margin-bottom: 4px;">Linked Citizen Request</h4>
+          <p style="margin: 0; font-size: 0.9rem;">
+            Request #{{ task.request.pk }}: {{ task.request.title }} (Citizen: {{ task.request.citizen.get_full_name|default:task.request.citizen.username }})
+          </p>
+          <a href="{% url 'operations:request_detail_admin' task.request.pk %}" style="font-size: 0.85rem; font-weight: 600; display: inline-block; margin-top: 4px;">
+            View Request Details &rarr;
+          </a>
+        </div>
+      {% endif %}
+
+      <p style="margin-bottom: 6px;"><strong>Location:</strong> {{ task.location_name|default:"Coords" }} ({{ task.latitude }}, {{ task.longitude }})</p>
+      <p style="margin-bottom: 6px;"><strong>Due Date:</strong> {{ task.due_date|default:"Not specified" }}</p>
+      <p style="margin-bottom: 6px;">
+        <strong>Currently Assigned:</strong>
+        {% if task.assigned_worker %}
+          Worker: {{ task.assigned_worker.get_full_name|default:task.assigned_worker.username }}
+        {% elif task.assigned_crew %}
+          Crew: <a href="{% url 'operations:crew_detail' task.assigned_crew.pk %}">{{ task.assigned_crew.name }}</a>
+        {% else %}
+          <span style="color: var(--status-orange);">Unassigned</span>
+        {% endif %}
+      </p>
+
+      {% if task.started_at %}
+        <p style="margin-bottom: 6px;"><strong>Started At:</strong> {{ task.started_at|date:"M j, Y g:i A" }}</p>
+      {% endif %}
+      {% if task.completed_at %}
+        <p style="margin-bottom: 6px;"><strong>Completed At:</strong> {{ task.completed_at|date:"M j, Y g:i A" }}</p>
+      {% endif %}
+
+      <!-- Assign / Reassign Form -->
+      <div style="border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px;">
+        <h4>Assign or Reassign Task</h4>
+        <form method="post" style="margin-top: 10px;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="assign">
+
+          <div class="form-group">
+            <label for="assigned_worker">Assign to Individual Worker:</label>
+            <select name="assigned_worker" id="assigned_worker" class="form-control">
+              <option value="">Choose Worker...</option>
+              {% for w in available_workers %}
+                <option value="{{ w.pk }}" {% if task.assigned_worker_id == w.pk %}selected{% endif %}>
+                  {{ w.get_full_name|default:w.username }} ({{ w.worker_profile.get_designation_display }})
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="assigned_crew">OR Assign to Temporary Crew:</label>
+            <select name="assigned_crew" id="assigned_crew" class="form-control">
+              <option value="">Choose Crew...</option>
+              {% for c in active_crews %}
+                <option value="{{ c.pk }}" {% if task.assigned_crew_id == c.pk %}selected{% endif %}>
+                  {{ c.name }} (Leader: {{ c.crew_leader.get_full_name|default:c.crew_leader.username }})
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-sm">Save Assignment</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Right Column: Location Map -->
+    <div>
+      <div class="card">
+        <div class="card-header">
+          <h3>Task Location</h3>
+        </div>
+        <div id="admin-task-map" style="height: 260px; border: 1px solid var(--border); border-radius: 4px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Completion & Verification Section -->
+  {% if task.status == "COMPLETED" or task.verified_by_admin %}
+    <div class="card" style="border-left: 4px solid var(--status-green); margin-top: 20px;">
+      <div class="card-header">
+        <h3 style="color: var(--status-green);">Completion Proof &amp; Verification</h3>
+        {% if task.verified_by_admin %}
+          <span class="badge badge-approved">VERIFIED BY ADMIN</span>
+        {% else %}
+          <span class="badge badge-submitted">AWAITING VERIFICATION</span>
+        {% endif %}
+      </div>
+
+      <div class="grid-cols-2">
+        <div>
+          <p style="margin-bottom: 6px;"><strong>Worker Remarks:</strong></p>
+          <div style="background-color: var(--bg-main); padding: 12px; border-radius: 4px; margin-bottom: 14px;">
+            {{ task.completion_remarks|default:"Completed as requested." }}
+          </div>
+
+          {% if not task.verified_by_admin %}
+            <form method="post" style="border-top: 1px solid var(--border); padding-top: 14px;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="verify">
+              <div class="form-group">
+                <label for="admin_notes">Administrator Verification Remarks:</label>
+                <textarea name="admin_notes" id="admin_notes" rows="2" class="form-control" placeholder="Verified work meets municipal standards..."></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary">✔ Verify Completion &amp; Resolve Request</button>
+            </form>
+          {% else %}
+            <p><strong>Verified At:</strong> {{ task.verified_at|date:"M j, Y g:i A" }}</p>
+            {% if task.admin_notes %}
+              <p><strong>Admin Notes:</strong> {{ task.admin_notes }}</p>
+            {% endif %}
+          {% endif %}
+        </div>
+
+        <div>
+          {% if task.completion_photo %}
+            <p style="font-weight: 600; margin-bottom: 6px;">Completion Photograph:</p>
+            <img src="{{ task.completion_photo.url }}" alt="Completion Proof" style="width: 100%; max-height: 260px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border);">
+          {% else %}
+            <p style="color: var(--text-muted);">No completion photo uploaded.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <div style="margin-top: 20px;">
+    <a href="{% url 'operations:task_management' %}" class="btn btn-secondary">&larr; Back to Task Desk</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if GOOGLE_MAPS_API_KEY %}
+<script>
+  function initAdminTaskMap() {
+    const pos = { lat: {{ task.latitude }}, lng: {{ task.longitude }} };
+    const map = new google.maps.Map(document.getElementById("admin-task-map"), {
+      center: pos,
+      zoom: 15,
+    });
+    new google.maps.Marker({
+      position: pos,
+      map: map,
+      title: "{{ task.title|escapejs }}",
+    });
+  }
+</script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY|urlencode }}&callback=initAdminTaskMap"></script>
+{% endif %}
+{% endblock %}

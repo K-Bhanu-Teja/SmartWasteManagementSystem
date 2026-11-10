@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}Citizen Dashboard · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <span class="role-pill">Citizen Dashboard</span>
+    <h1>Welcome, {{ user.get_full_name|default:user.username }}</h1>
+    <p>View public dustbins on the map, submit complaints or service requests, and track their resolution.</p>
+  </div>
+</section>
+
+<div class="container">
+  <!-- Statistics Overview -->
+  <div class="grid-cols-3" style="margin-bottom: 24px;">
+    <div class="stat-card">
+      <div class="stat-label">Total Requests</div>
+      <div class="stat-value">{{ total_requests }}</div>
+    </div>
+    <div class="stat-card" style="border-left-color: var(--status-orange);">
+      <div class="stat-label">In Progress / Pending</div>
+      <div class="stat-value" style="color: var(--status-orange);">{{ pending_requests }}</div>
+    </div>
+    <div class="stat-card" style="border-left-color: var(--status-green);">
+      <div class="stat-label">Resolved Requests</div>
+      <div class="stat-value" style="color: var(--status-green);">{{ resolved_requests }}</div>
+    </div>
+  </div>
+
+  <!-- Nearby Dustbins Section -->
+  <div class="card" id="nearby-dustbins">
+    <div class="card-header">
+      <h2>Nearby Dustbins</h2>
+      <div class="btn-group">
+        <a href="{% url 'citizen:nearby_dustbins' %}" class="btn btn-secondary btn-sm">Full Nearby View &rarr;</a>
+        <a href="{% url 'citizen:submit_request' %}" class="btn btn-primary btn-sm">+ Submit New Request</a>
+      </div>
+    </div>
+    <div id="dash-loc-notice" style="display: none; margin-bottom: 12px;" class="alert alert-warning"></div>
+    <div id="citizen-map" class="map-box"></div>
+    <div class="map-legend">
+      <div class="legend-item">
+        <span class="legend-dot dot-dustbin"></span>
+        <span>Public Dustbin (Click marker for cleaning details)</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot" style="background-color: #1976D2;"></span>
+        <span>My Current Location</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-cols-2">
+    <!-- Recent Requests -->
+    <div class="card">
+      <div class="card-header">
+        <h3>My Recent Requests</h3>
+        <a href="{% url 'citizen:my_requests' %}" class="btn btn-secondary btn-sm">View All</a>
+      </div>
+      {% if recent_requests %}
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Cause</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for req in recent_requests %}
+                <tr>
+                  <td><strong>{{ req.title }}</strong></td>
+                  <td>{{ req.cause }}</td>
+                  <td><span class="badge badge-{{ req.status|lower }}">{{ req.get_status_display }}</span></td>
+                  <td><a href="{% url 'citizen:request_detail' req.pk %}" class="btn btn-secondary btn-sm">Details</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">You haven't submitted any requests yet.</p>
+        <div style="margin-top: 12px;">
+          <a href="{% url 'citizen:submit_request' %}" class="btn btn-primary btn-sm">Submit First Request</a>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Notifications -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Recent Notifications</h3>
+      </div>
+      {% if notifications %}
+        <div style="max-height: 280px; overflow-y: auto;">
+          {% for notif in notifications %}
+            <div class="notification-item">
+              <span class="notification-message">
+                {% if notif.link %}
+                  <a href="{{ notif.link }}">{{ notif.message }}</a>
+                {% else %}
+                  {{ notif.message }}
+                {% endif %}
+              </span>
+              <span class="notification-date">{{ notif.created_at|date:"M j, g:i A" }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">No new notifications.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if GOOGLE_MAPS_API_KEY %}
+<script>
+  function initCitizenMap() {
+    const defaultCenter = { lat: 16.833944, lng: 81.531444 };
+    const map = new google.maps.Map(document.getElementById("citizen-map"), {
+      center: defaultCenter,
+      zoom: 14,
+    });
+
+    const infoWindow = new google.maps.InfoWindow();
+
+    // Show user location if allowed
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const userPos = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          };
+          new google.maps.Marker({
+            position: userPos,
+            map: map,
+            title: "Your Location",
+            icon: {
+              path: google.maps.SymbolPath.CIRCLE,
+              scale: 8,
+              fillColor: "#1976D2",
+              fillOpacity: 1,
+              strokeWeight: 2,
+              strokeColor: "#FFFFFF",
+            }
+          });
+          map.panTo(userPos);
+        },
+        (error) => {
+          const notice = document.getElementById("dash-loc-notice");
+          if (notice) {
+            notice.textContent = "Location permission denied or unavailable. You can still explore all dustbins on the map manually by zooming and panning.";
+            notice.style.display = "block";
+          }
+        },
+        { timeout: 7000, maximumAge: 60000, enableHighAccuracy: false }
+      );
+    }
+
+    fetch("{% url 'citizen:dustbins_api' %}")
+      .then(res => res.json())
+      .then(data => {
+        if (data.dustbins && data.dustbins.length > 0) {
+          const bounds = new google.maps.LatLngBounds();
+
+          data.dustbins.forEach(bin => {
+            const pos = { lat: bin.latitude, lng: bin.longitude };
+            const marker = new google.maps.Marker({
+              position: pos,
+              map: map,
+              title: bin.name,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 8,
+                fillColor: "#2E7D32",
+                fillOpacity: 1,
+                strokeWeight: 2,
+                strokeColor: "#FFFFFF",
+              }
+            });
+
+            marker.addListener("click", () => {
+              infoWindow.setContent(`
+                <div style="font-family: inherit; padding: 4px;">
+                  <h4 style="color: #2E7D32; margin-bottom: 4px;">${bin.name}</h4>
+                  <p style="margin: 0; font-size: 13px;">${bin.description || 'Public Dustbin'}</p>
+                  <p style="margin: 4px 0 0; font-size: 12px; color: #555;">
+                    <strong>Last Cleaned:</strong> ${bin.last_cleaned_at}
+                  </p>
+                </div>
+              `);
+              infoWindow.open(map, marker);
+            });
+
+            bounds.extend(pos);
+          });
+          map.fitBounds(bounds);
+        }
+      })
+      .catch(err => console.error("Error loading dustbins:", err));
+  }
+</script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY|urlencode }}&callback=initCitizenMap"></script>
+{% endif %}
+{% endblock %}

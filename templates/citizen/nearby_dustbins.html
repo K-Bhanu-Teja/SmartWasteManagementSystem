@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block title %}Nearby Public Dustbins · Citizen · SWMS{% endblock %}
+
+{% block content %}
+<section class="page-intro">
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <span class="role-pill">Citizen Service</span>
+        <h1>Nearby Dustbins</h1>
+        <p>Locate the closest public waste disposal bins to your current location or explore the neighborhood map manually.</p>
+      </div>
+      <div class="btn-group">
+        <button id="btn-detect-loc" class="btn btn-primary btn-sm">📍 Detect My Location</button>
+        <button id="btn-reset-map" class="btn btn-secondary btn-sm">🗺 Reset Map View</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <!-- Location Permission / Status Notice -->
+  <div id="location-notice" style="display: none; margin-bottom: 16px;"></div>
+
+  <div class="grid-cols-3">
+    <!-- Map Container (spans 2 cols on wide screens) -->
+    <div class="card" style="grid-column: span 2;">
+      <div class="card-header">
+        <h2>Interactive Dustbin Locator</h2>
+        <span id="loc-indicator" style="font-size: 0.85rem; color: var(--text-muted);">Finding location...</span>
+      </div>
+      <div id="nearby-map" class="map-box" style="height: 520px;"></div>
+      <div class="map-legend" style="margin-top: 12px;">
+        <div class="legend-item">
+          <span class="legend-dot dot-dustbin"></span>
+          <span>Public Dustbin (Click marker for cleaning details)</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot" style="background-color: #1976D2;"></span>
+          <span>Your Current Location</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Closest Dustbins List -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Nearest Dustbins</h3>
+        <span id="nearest-count" style="font-size: 0.85rem; color: var(--text-muted);">{{ dustbins.count }} registered</span>
+      </div>
+
+      <div id="nearest-list" style="max-height: 520px; overflow-y: auto;">
+        {% for bin in dustbins %}
+          <div class="dustbin-list-item" id="bin-card-{{ bin.pk }}" style="padding: 12px; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 10px; background-color: #FAFAFA; transition: background 0.15s ease;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+              <strong style="color: var(--primary); font-size: 1rem;">{{ bin.name }}</strong>
+              <span class="bin-distance-badge" id="dist-{{ bin.pk }}" style="font-size: 0.78rem; font-weight: 700; color: #1976D2; background: #E3F2FD; padding: 2px 6px; border-radius: 3px;">
+                Checking...
+              </span>
+            </div>
+            <p style="margin: 4px 0 6px; font-size: 0.88rem; color: var(--text-main);">
+              {{ bin.description|default:"Public Waste Bin" }}
+            </p>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
+              <strong>Last Cleaned:</strong> {{ bin.last_cleaned_at|date:"M j, Y g:i A"|default:"Not recorded yet" }}
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="focusDustbin({{ bin.pk }}, {{ bin.latitude }}, {{ bin.longitude }})">
+              Show on Map
+            </button>
+          </div>
+        {% empty %}
+          <p style="color: var(--text-muted); padding: 12px 0;">No registered dustbins available.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if GOOGLE_MAPS_API_KEY %}
+<script>
+  let nearbyMap;
+  let userMarker = null;
+  let userLatLng = null;
+  const markers = {};
+  const dustbinData = [];
+  const defaultCenter = { lat: 16.833944, lng: 81.531444 };
+  const infoWindow = new google.maps.InfoWindow();
+
+  // Haversine formula to compute distance in meters between two lat/lng coordinates
+  function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; // Earth radius in meters
+    const phi1 = (lat1 * Math.PI) / 180;
+    const phi2 = (lat2 * Math.PI) / 180;
+    const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+    const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+      Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
+  }
+
+  function formatDistance(meters) {
+    if (isNaN(meters) || meters === null) return "Distance unknown";
+    if (meters < 1000) {
+      return Math.round(meters) + " m away";
+    }
+    return (meters / 1000).toFixed(2) + " km away";
+  }
+
+  function initNearbyMap() {
+    nearbyMap = new google.maps.Map(document.getElementById("nearby-map"), {
+      center: defaultCenter,
+      zoom: 14,
+      mapTypeControl: true,
+      streetViewControl: false,
+    });
+
+    fetch("{% url 'citizen:dustbins_api' %}")
+      .then(res => res.json())
+      .then(data => {
+        if (data.dustbins && data.dustbins.length > 0) {
+          const bounds = new google.maps.LatLngBounds();
+
+          data.dustbins.forEach(bin => {
+            dustbinData.push(bin);
+            const pos = { lat: bin.latitude, lng: bin.longitude };
+            const marker = new google.maps.Marker({
+              position: pos,
+              map: nearbyMap,
+              title: bin.name,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 9,
+                fillColor: "#2E7D32",
+                fillOpacity: 1,
+                strokeWeight: 2,
+                strokeColor: "#FFFFFF",
+              },
+            });
+
+            marker.addListener("click", () => {
+              openDustbinInfoWindow(bin, marker);
+            });
+
+            markers[bin.id] = marker;
+            bounds.extend(pos);
+          });
+
+          // Attempt one-shot location detection
+          detectUserLocation();
+        }
+      })
+      .catch(err => {
+        console.error("Error loading dustbins:", err);
+      });
+  }
+
+  function openDustbinInfoWindow(bin, marker) {
+    let distanceText = "";
+    if (userLatLng) {
+      const dist = calculateDistance(userLatLng.lat, userLatLng.lng, bin.latitude, bin.longitude);
+      distanceText = `<p style="margin: 4px 0 0; font-size: 12px; color: #1976D2; font-weight: 600;">Distance: ${formatDistance(dist)}</p>`;
+    }
+
+    infoWindow.setContent(`
+      <div style="font-family: inherit; padding: 6px; min-width: 180px;">
+        <h4 style="color: #2E7D32; margin-bottom: 4px; font-size: 15px;">${bin.name}</h4>
+        <p style="margin: 0; font-size: 13px; color: #333;">${bin.description || 'Public Waste Dustbin'}</p>
+        <p style="margin: 4px 0 0; font-size: 12px; color: #666;">
+          <strong>Last Cleaned:</strong> ${bin.last_cleaned_at}
+        </p>
+        ${distanceText}
+      </div>
+    `);
+    infoWindow.open(nearbyMap, marker);
+  }
+
+  function focusDustbin(binId, lat, lng) {
+    const pos = { lat: lat, lng: lng };
+    nearbyMap.panTo(pos);
+    nearbyMap.setZoom(17);
+    const marker = markers[binId];
+    const bin = dustbinData.find(b => b.id === binId);
+    if (marker && bin) {
+      openDustbinInfoWindow(bin, marker);
+    }
+  }
+
+  function showNotice(type, message) {
+    const notice = document.getElementById("location-notice");
+    notice.className = "alert alert-" + type;
+    notice.innerHTML = message;
+    notice.style.display = "block";
+  }
+
+  function detectUserLocation() {
+    const indicator = document.getElementById("loc-indicator");
+    indicator.textContent = "Requesting location...";
+
+    if (!navigator.geolocation) {
+      showNotice("warning", "Geolocation is not supported by your browser. You can navigate the map manually using zoom and pan controls.");
+      indicator.textContent = "Location not supported";
+      clearDistanceBadges();
+      return;
+    }
+
+    // One-shot getCurrentPosition (No continuous tracking)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        userLatLng = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        };
+
+        indicator.textContent = "Location active";
+        document.getElementById("location-notice").style.display = "none";
+
+        // Place or update user location marker
+        if (userMarker) {
+          userMarker.setPosition(userLatLng);
+        } else {
+          userMarker = new google.maps.Marker({
+            position: userLatLng,
+            map: nearbyMap,
+            title: "Your Location",
+            zIndex: 999,
+            icon: {
+              path: google.maps.SymbolPath.CIRCLE,
+              scale: 8,
+              fillColor: "#1976D2",
+              fillOpacity: 1,
+              strokeWeight: 3,
+              strokeColor: "#FFFFFF",
+            },
+          });
+        }
+
+        nearbyMap.panTo(userLatLng);
+        nearbyMap.setZoom(15);
+
+        // Sort nearest dustbins list based on distance
+        updateNearestDustbinsList();
+      },
+      (error) => {
+        let msg = "Location access was denied or is unavailable. You can still view all registered dustbins on the map manually by zooming and panning.";
+        if (error.code === error.PERMISSION_DENIED) {
+          msg = "Location permission was denied. You can browse the map manually or enable location permissions in your browser settings and click 'Detect My Location' to retry.";
+        }
+        showNotice("warning", msg);
+        indicator.textContent = "Manual navigation mode";
+        clearDistanceBadges();
+      },
+      { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false }
+    );
+  }
+
+  function clearDistanceBadges() {
+    dustbinData.forEach(bin => {
+      const badge = document.getElementById("dist-" + bin.id);
+      if (badge) badge.textContent = "Manual view";
+    });
+  }
+
+  function updateNearestDustbinsList() {
+    if (!userLatLng) return;
+
+    // Calculate distance for all dustbins and sort
+    dustbinData.forEach(bin => {
+      bin.calculatedDistance = calculateDistance(userLatLng.lat, userLatLng.lng, bin.latitude, bin.longitude);
+      const badge = document.getElementById("dist-" + bin.id);
+      if (badge) {
+        badge.textContent = formatDistance(bin.calculatedDistance);
+      }
+    });
+
+    // Reorder DOM elements in #nearest-list
+    const container = document.getElementById("nearest-list");
+    dustbinData.sort((a, b) => a.calculatedDistance - b.calculatedDistance);
+    dustbinData.forEach(bin => {
+      const card = document.getElementById("bin-card-" + bin.id);
+      if (card) {
+        container.appendChild(card);
+      }
+    });
+  }
+
+  document.getElementById("btn-detect-loc").addEventListener("click", () => {
+    detectUserLocation();
+  });
+
+  document.getElementById("btn-reset-map").addEventListener("click", () => {
+    if (dustbinData.length > 0) {
+      const bounds = new google.maps.LatLngBounds();
+      dustbinData.forEach(b => bounds.extend({ lat: b.latitude, lng: b.longitude }));
+      if (userLatLng) bounds.extend(userLatLng);
+      nearbyMap.fitBounds(bounds);
+    } else {
+      nearbyMap.setCenter(defaultCenter);
+      nearbyMap.setZoom(14);
+    }
+  });
+</script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ GOOGLE_MAPS_API_KEY|urlencode }}&callback=initNearbyMap"></script>
+{% endif %}
+{% endblock %}
