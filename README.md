@@ -1,229 +1,378 @@
-# Smart Waste Management System
+# Smart Waste Management System (SWMS)
 
-A role-aware Django application for municipal waste services. It uses PostgreSQL in normal operation and provides citizen services, worker approval and operations, fleet management, GPS workflows, and Google Maps-based location views.
+A comprehensive, role-aware municipal waste management platform built with **Django** and **PostgreSQL**. The system provides end-to-end municipal waste handling across three primary user roles: **Citizen**, **Administrator**, and **Worker**.
 
-## Contents
+Features include unified waste complaints and scheduled household pickups, interactive Google Maps location selection, one-shot citizen nearby dustbin discovery, temporary crew formation with persistent historical archives, vehicle/driver allocation, task lifecycle tracking with proof-of-work photo uploads, and in-app notifications.
 
-- [Applications and architecture](#applications-and-architecture)
-- [User and data model](#user-and-data-model)
-- [Workflows](#workflows)
-- [URL reference](#url-reference)
-- [Maps and location behavior](#maps-and-location-behavior)
-- [Configuration](#configuration)
-- [Setup](#setup)
-- [Migrations and data preservation](#migrations-and-data-preservation)
-- [Tests and checks](#tests-and-checks)
-- [Project layout](#project-layout)
+---
 
-## Applications and architecture
+## Table of Contents
 
-The project is split into three Django apps:
+- [Key Features](#key-features)
+- [Primary User Roles](#primary-user-roles)
+- [Application Architecture](#application-architecture)
+- [Database Models and Relationships](#database-models-and-relationships)
+- [Core Workflows](#core-workflows)
+  - [1. Citizen Request Lifecycle](#1-citizen-request-lifecycle)
+  - [2. Interactive Map-Based Task Creation](#2-interactive-map-based-task-creation)
+  - [3. Public Dustbin Registration and Tracking](#3-public-dustbin-registration-and-tracking)
+  - [4. Citizen Nearby Dustbins Locator](#4-citizen-nearby-dustbins-locator)
+  - [5. Crew Formation, Dissolution, and Historical Archives](#5-crew-formation-dissolution-and-historical-archives)
+  - [6. Vehicle and Driver Allocation](#6-vehicle-and-driver-allocation)
+  - [7. Worker Task Execution and Admin Verification](#7-worker-task-execution-and-admin-verification)
+- [Complete URL Routing Reference](#complete-url-routing-reference)
+- [Google Maps Integration](#google-maps-integration)
+- [Environment Configuration](#environment-configuration)
+- [Installation and Setup](#installation-and-setup)
+- [Automated Tests and Verification](#automated-tests-and-verification)
+- [Project Directory Layout](#project-directory-layout)
 
-- `accounts` owns the custom authentication user, email authentication, registration profiles, approval state, password reset codes, and session timeout.
-- `citizen_services` owns public waste locations, the service boundary, citizen complaints and pickups, saved locations, and vehicle proximity alerts.
-- `workforce` owns vehicles and driver assignments, crews, attendance, approval operations, complaint status administration, GPS updates, and administrator/worker pages.
-- `config` contains project settings, root URL routing, context processors, and WSGI/ASGI entry points.
+---
 
-Templates are under `templates/`; browser styles and scripts are under `static/`. Uploaded files use `MEDIA_ROOT`.
+## Key Features
 
-## User and data model
+- **Three Dedicated Role Dashboards**: Tailored interfaces for Citizens, Administrators, and Workers with role-based view decorators (`@citizen_required`, `@administrator_required`, `@worker_required`).
+- **Unified Request System**: Citizens report waste issues (overflowing bins, illegal dumping, damaged bins, roadside waste) or schedule household pickups (household, recyclable, garden, bulky waste) in one unified interface.
+- **Interactive Map Pinning**: Administrators can click anywhere on Google Maps or drag pins to pinpoint coordinates when creating tasks or registering dustbins, with automatic two-way input synchronization.
+- **Nearby Dustbins Discovery**: Citizens can locate active public dustbins nearby using browser Geolocation API (one-shot detection with zero continuous tracking), displaying real-time distance calculations, cleaning status, and manual map navigation fallback.
+- **Dynamic Crew Operations**: Administrators assemble temporary operational crews from active workers and assign a designated crew leader. Historical membership and task records are permanently retained even after crew dissolution.
+- **Fleet and Driver Allocation**: Municipal vehicles (compactors, mini tippers, trucks) are tracked for availability and assigned to approved drivers with complete assignment history.
+- **Proof-of-Work Verification**: Workers mark tasks "In Progress" and "Completed" by submitting completion remarks and photo evidence. Administrators review submissions and verify completion.
+- **In-App Notification Center**: Keeps users informed of task assignments, request approvals, and status transitions.
 
-Authentication uses one custom `accounts.User` model extending Django's `AbstractUser`. Users sign in with email and password through the same login page. Passwords use Django's password hashing and configured password validators. Email uniqueness is enforced case-insensitively.
+---
 
-Current roles are `visitor`, `citizen`, `driver`, `cleaner`, `crew_leader`, and `administrator`. Public registration provides Citizen, Driver, and Worker choices. The public Worker choice maps to the existing `cleaner` role. Crew leaders and administrators are provisioned through existing admin/operations processes rather than the public registration choices.
+## Primary User Roles
 
-Role-specific data is stored separately:
+| Role | Access Level | Core Responsibilities & Capabilities |
+| :--- | :--- | :--- |
+| **Citizen** | Self-registered, auto-activated | • Submit complaints and schedule household waste pickups with photos and coordinates.<br>• Track request status and review admin remarks.<br>• Locate nearby public dustbins on Google Maps with distance estimates.<br>• Cancel submitted requests prior to assignment. |
+| **Administrator** | Pre-provisioned / Superuser | • Comprehensive operations dashboard with municipal statistics.<br>• Review, approve, reject, and convert citizen requests into tasks.<br>• Create and dispatch tasks using interactive map coordinate pickers.<br>• Register and track public dustbins and review cleaning history.<br>• Review, approve, and manage worker profiles and worker IDs.<br>• Assemble temporary crews, assign crew leaders, and inspect historical archives.<br>• Manage fleet inventory and assign drivers to vehicles.<br>• Inspect worker completion photos and verify completed tasks. |
+| **Worker** | Registered, requires Admin approval | • Designations: **Sanitation Worker / Cleaner** or **Driver**.<br>• Toggle daily operational availability (`Active` / `Inactive`).<br>• View assigned individual tasks or tasks assigned to their active crew.<br>• Start tasks, navigate to locations, and complete tasks with photo uploads and remarks. |
 
-- `CitizenProfile`: house number, street/locality, ward, and village.
-- `DriverProfile`: date of birth, optional gender, residential address, unique driving licence number, expiry date, experience, and licence document. Vehicle details are not part of driver registration.
-- `WorkerProfile`: date of birth, optional gender, residential address, village, ward, optional experience, and optional identification document.
-- `Vehicle`: fleet identifier, registration number, optional type, GPS position, and availability.
-- `DriverVehicleAssignment`: driver/vehicle relationship with assignment history and active/released state. Database constraints allow at most one active vehicle per driver and one active driver per vehicle.
-- `Crew`: a retained temporary operating group. Its roster and vehicles are recorded in `CrewMember` and `CrewVehicle`; a driver, vehicles, and workers are optional/flexible, with one designated leader.
-- `CrewAssignment`: links one crew to a complaint or a pickup with an active-task constraint and retained assignment history.
-- `WorkerLocation`: latest GPS position, signed-in state, and Available/Assigned/Off Duty/Unavailable availability.
-- `TaskStatusHistory`, `CitizenConfirmation`, and `Notification`: immutable progress events, two-sided completion confirmation, and in-app notices.
-- `Attendance`: one GPS-verified check-in per worker per local date.
-- `Dustbin`: an active public dustbin with coordinates and an automatically assigned `DBno…` identifier.
-- `ServiceBoundary`: the single four-point service polygon stored for the municipality.
-- `Complaint`: citizen-submitted report, category, description, photo, coordinates, status, and optional assigned crew.
-- `PickupRequest`: a scheduled citizen pickup, category, address, quantity, coordinates, and status.
-- `SavedLocation`: a citizen-saved label and coordinates used for vehicle alerts.
-- `PasswordResetOTP`: hashed, expiring, single-use password recovery codes with attempt tracking.
+---
 
-## Workflows
+## Application Architecture
 
-### Registration and access
+The system is structured into three cohesive Django apps:
 
-`/register/` is one progressive registration page. It collects shared identity and login details, then displays the selected role's additional fields. `/register/citizen/`, `/register/driver/`, and `/register/worker/` remain compatible aliases to that same page.
+```
+SmartWasteManagementSystem/
+├── accounts/          Authentication, user model, role profiles, approvals, OTP reset
+├── citizen_services/  Dustbins, cleaning history, unified citizen requests, locator API
+├── workforce/         Vehicles, fleet assignments, crews, tasks, notifications, operations
+├── config/            Project settings, root URL routing, context processors
+├── templates/         Django templates styled with responsive modern CSS
+└── static/            Stylesheets, brand assets, and client-side map scripts
+```
 
-Citizen accounts are activated on successful registration. Driver and Worker accounts start inactive and pending administrator review. Administrators can inspect submitted profile details and documents, then approve or reject an application. Rejected and pending accounts cannot log in; login reports the appropriate status when the password is correct.
+- **`accounts`**: Owns the custom `User` model, email-based authentication (`EmailBackend`), `CitizenProfile`, `WorkerProfile`, and single-use `PasswordResetOTP`.
+- **`citizen_services`**: Manages municipal assets (`Dustbin`, `CleaningHistory`) and citizen service records (`Request`), along with the public dustbins JSON API.
+- **`workforce`**: Handles operations (`Vehicle`, `VehicleAssignment`, `Crew`, `CrewMember`, `Task`, `Notification`), workforce availability, and task execution workflows.
+- **`config`**: Holds project configuration, PostgreSQL database setup, Google Maps settings, and root URL routing.
 
-The admin document endpoint is protected by administrator authorization. PDF/JPEG/PNG uploads are limited to 5 MB and validated by file extension and file signature.
+---
 
-Operations pages such as `/operations/admin/` require an authenticated administrator account. A browser with an existing valid session can open these pages directly; use Sign out or a private window to verify unauthenticated behavior.
+## Database Models and Relationships
 
-When `DJANGO_DEBUG=True`, each development server process uses a distinct session marker and signs out existing sessions after a server restart. This reset is disabled when debug mode is off and in the isolated test settings.
+```mermaid
+erDiagram
+    User ||--o| CitizenProfile : "has"
+    User ||--o| WorkerProfile : "has"
+    User ||--o{ Request : "submits"
+    User ||--o{ Notification : "receives"
+    User ||--o{ VehicleAssignment : "driver in"
+    User ||--o{ Crew : "leads"
+    User ||--o{ CrewMember : "member of"
+    User ||--o{ Task : "assigned worker"
+    
+    Dustbin ||--o{ CleaningHistory : "tracks"
+    Dustbin ||--o{ Task : "associated with"
+    
+    Request ||--o| Task : "converted into"
+    
+    Vehicle ||--o{ VehicleAssignment : "allocated to"
+    
+    Crew ||--o{ CrewMember : "contains"
+    Crew ||--o{ Task : "assigned crew"
+```
 
-### Vehicle assignment and crews
+### Model Summary
 
-Administrators add fleet vehicles and assign them to approved, active drivers from Worker operations. They can change or remove an assignment. The assignment history remains in the database; a released vehicle becomes available again unless a crew still uses it. Pending, rejected, inactive, or non-driver accounts cannot receive an assignment.
+| Model | App | Purpose |
+| :--- | :--- | :--- |
+| **`User`** | `accounts` | Custom user model extending `AbstractUser`. Enforces unique email login, role (`citizen`, `administrator`, `worker`), and admin approval status (`approved`, `rejected`). |
+| **`CitizenProfile`** | `accounts` | Stores citizen address details: house number, street locality, ward number, and village name. |
+| **`WorkerProfile`** | `accounts` | Stores worker ID, designation (`driver`, `cleaner`, `crew_leader`), date of birth, gender, address, experience, ID proof document, and availability (`INACTIVE`, `ACTIVE`, `ASSIGNED`). |
+| **`PasswordResetOTP`** | `accounts` | Secure SHA-256 hashed 6-digit one-time passwords for password recovery with attempt counts and 15-minute expiration. |
+| **`Dustbin`** | `citizen_services` | Public waste bin asset with automatic code generation (`DBno1`, `DBno2`), coordinates, active state, and last cleaned timestamp. |
+| **`CleaningHistory`** | `citizen_services` | Immutable audit log of dustbin cleanings linked to completed tasks, workers, timestamps, and remarks. |
+| **`Request`** | `citizen_services` | Unified citizen service record covering both complaints (overflowing bins, illegal dumping, damaged bins, roadside waste) and scheduled pickups (household, recyclable, garden, bulky waste). |
+| **`Vehicle`** | `workforce` | Municipal fleet inventory with registration number, vehicle type, and availability flag. |
+| **`VehicleAssignment`** | `workforce` | Tracks active and released driver-to-vehicle pairings with assignment and release timestamps. |
+| **`Crew`** | `workforce` | Temporary operational team with name, creator, crew leader, active status, formed date, and dissolution date. |
+| **`CrewMember`** | `workforce` | Membership record connecting a worker to a crew, retaining role, join date, release date, and status even after crew dissolution. |
+| **`Task`** | `workforce` | Operational unit of work with category, coordinates, address, deadline, status (`PENDING`, `ASSIGNED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`), worker/crew assignments, completion proof photo, and admin verification. |
+| **`Notification`** | `workforce` | In-app notification with message, direct link, read state, and timestamp. |
 
-Crews support one or more active workers and drivers, zero or more vehicles, and one leader selected from the chosen members. Worker operations uses independent checkboxes for selecting any available drivers, workers, and vehicles, followed by a crew-leader dropdown limited to the selected people. Legacy driver, cleaner, and primary-vehicle fields remain available for existing records. Roster and vehicle rows are retained after release; resources can be reused after their crew ends.
+---
 
-Administrators can create an unassigned crew in Worker operations or use the task assignment form on the home-pickup page. In Complaint management, administrators can assign an eligible existing crew or open Worker operations to create one; after creation, the complaint page offers an explicit next-step button to assign that crew. Existing active crews can be assigned without current GPS fixes; when available, the crew leader's location is shown for distance. New task crews created directly from a home-pickup form use signed-in workers/drivers with fresh GPS positions, sorted by straight-line distance to the task. Backend transactions recheck resource eligibility and active task/member constraints.
+## Core Workflows
 
-### Complaints and pickups
+### 1. Citizen Request Lifecycle
+1. **Submission**: Citizens submit requests via `/citizen/submit/` by choosing a cause:
+   - **Complaints**: Overflowing Dustbin, Illegal Garbage Dumping, Damaged Dustbin, Roadside Garbage, or Other. Includes photo upload and location coordinates.
+   - **Scheduled Pickups**: Scheduled Waste Pickup. Requires preferred pickup date, preferred time slot, and waste category.
+2. **Review & Conversion**: Administrators view requests under `/operations/admin/requests/` and can approve, reject, or directly convert a request into an operational task.
+3. **Status Tracking**: Citizens track progress through an interactive status badge timeline (`SUBMITTED` &rarr; `UNDER_REVIEW` &rarr; `APPROVED` &rarr; `ASSIGNED` &rarr; `IN_PROGRESS` &rarr; `RESOLVED`).
 
-Citizens submit complaints with a category, description, photo, and location, then track the status timeline. Administrators manage complaints and pickups from separate pages but use the same assignment service. The new operational lifecycle is `pending`, `assigned`, `crew_on_the_way`, `arrived`, `in_progress`, `completed_awaiting_confirmation`, `confirmed`, and `closed`, with `admin_review`, `rejected_disputed`, and `cancelled` states available. Legacy status values remain readable.
+### 2. Interactive Map-Based Task Creation
+1. Administrators navigate to `/operations/admin/tasks/` to create a task.
+2. The page provides an integrated Google Map (`#task-create-map`). Clicking on the map or dragging the marker updates the latitude and longitude inputs automatically.
+3. Manual coordinate entry is also fully supported; typing coordinates automatically updates the map marker and pans to the location.
+4. Input bounds (`-90` to `90` for latitude, `-180` to `180` for longitude) are validated on both client and server before saving.
+5. Tasks can be dispatched immediately to an individual worker or an active crew.
 
-Only the designated crew leader can update operational progress. Completion starts a configurable citizen confirmation window (default 24 hours). Citizens can confirm and close the task, or dispute it for administrator review; resources remain reserved until confirmation or admin resolution. Run `python manage.py process_task_confirmations` periodically (for example, every 10 minutes) to send reminders and move expired confirmations to admin review. Expired tasks are never auto-confirmed.
+### 3. Public Dustbin Registration and Tracking
+1. Administrators access `/operations/admin/dustbins/` to manage municipal dustbins.
+2. The **Add New Dustbin** form includes an interactive map (`#dustbin-picker-map`) showing existing bins as reference markers to avoid overlapping placement.
+3. Clicking on the map or dragging the green bin marker populates the coordinates.
+4. Dustbins receive an automatic sequential code (e.g., `DBno1`, `DBno2`) if left blank.
+5. Cleaning history and coordinate adjustments can be managed via the dustbin edit view.
 
-Citizens can schedule and review home pickups. Supported categories are household, recyclable, garden, and bulky waste. Citizens can also save map locations and use current or saved coordinates for nearby vehicle alerts.
+### 4. Citizen Nearby Dustbins Locator
+1. Accessible strictly to authenticated citizens via **Nearby Dustbins** navigation or `/citizen/nearby-dustbins/`.
+2. Uses a **single one-shot browser Geolocation call** (`getCurrentPosition`) without continuous tracking.
+3. Automatically computes straight-line distance to every active dustbin using the Haversine formula and sorts the nearest bins in a dedicated sidebar.
+4. Clicking markers displays the bin ID, location description, last cleaned timestamp, and distance from current location.
+5. If location permission is denied, a clear message is displayed and the user can navigate the map manually.
 
-### Worker operations
+### 5. Crew Formation, Dissolution, and Historical Archives
+1. **Formation**: Administrators select available workers and a driver, specify a crew name, and appoint a crew leader under `/operations/admin/crews/`.
+2. **Operations**: The crew can be assigned tasks as a cohesive unit. All crew members see crew-assigned tasks on their dashboards.
+3. **Dissolution**: When the operational cycle finishes, the administrator dissolves the crew.
+4. **Historical Archive Preservation**:
+   - Dissolution marks `is_active=False` and records `dissolved_at`.
+   - **Member associations are permanently preserved** (`CrewMember` rows are kept with `is_active=False`).
+   - The **Historical Crew Records** table allows administrators to click **Details** at any time to review full crew composition, leader info, dissolution date, and complete task completion history.
 
-Approved workers can view their active crew and task, navigate to the destination with Google Maps, check in once per local day, and manage availability. Device GPS is requested on the worker dashboard; live coordinates are sent over authenticated HTTP while the assignment page is open. Crew leaders see only their own crew's members; administrators see active crew leader locations, and citizens see no member locations. Stale coordinates are not rendered as live.
+### 6. Vehicle and Driver Allocation
+1. Administrators register fleet vehicles under `/operations/admin/vehicles/`.
+2. Only approved workers with the `Driver` designation appear in the driver selection dropdown.
+3. Assigning a vehicle marks the vehicle as unavailable for other drivers. Releasing an assignment marks the vehicle available again and preserves the assignment record for auditing.
 
-An approved driver can share an active crew vehicle's location. Drivers without an active crew cannot update a vehicle position. Citizens can request proximity alerts for their current or saved locations using `VEHICLE_ALERT_RADIUS_METERS`.
+### 7. Worker Task Execution and Admin Verification
+1. **Availability**: Workers sign in to `/operations/worker/` and toggle their daily availability between `Active` (available for dispatch) and `Inactive`.
+2. **Task Execution**:
+   - The worker clicks **Start Task**, moving the task status to `IN_PROGRESS` and updating the linked citizen request.
+   - Upon completing the work, the worker clicks **Complete Task**, providing completion remarks and uploading a mandatory proof photo.
+   - If the task is linked to a dustbin, a `CleaningHistory` record is automatically generated.
+3. **Admin Verification**: Administrators inspect the completion photo and remarks under `/operations/admin/tasks/<id>/` and check the task as verified.
 
-## URL reference
+---
 
-| Area | URL | Purpose |
-| --- | --- | --- |
-| Home | `/` | Public home page and map |
-| Login | `/login/` | Shared email/password login |
-| Registration | `/register/` | Unified role-selecting registration |
-| Registration aliases | `/register/citizen/`, `/register/driver/`, `/register/worker/` | Same unified registration page |
-| Password recovery | `/forgot-password/` | Request OTP; verification at `/forgot-password/verify/` |
-| Account dashboard | `/dashboard/` | Redirect to the signed-in user's workspace |
-| Django admin | `/django-admin/` | Django administration |
-| Citizen dashboard | `/citizen/dashboard/` | Citizen map and services |
-| Citizen complaints | `/citizen/complaints/` | Submit and track complaints |
-| Citizen pickups | `/citizen/pickups/` | Schedule and review pickups |
-| Worker operations | `/operations/admin/workers/` | Approvals, vehicle assignments, crews, recommendations, and fleet |
-| Complaint management | `/operations/admin/complaints/` | Admin complaint review and status changes |
-| Pickup management | `/operations/admin/pickups/` | Admin home-pickup review and shared crew assignment |
-| Admin map | `/operations/admin/` | Location management and complaint map |
-| Worker dashboard | `/operations/worker/` | Approved worker's active crew and GPS attendance |
+## Complete URL Routing Reference
 
-The `/accounts/...` login, registration, logout, dashboard, and password-reset paths remain as compatibility aliases. Important APIs include `/citizen/api/dustbins/`, `/citizen/api/vehicle-alerts/`, `/operations/api/boundary/`, `/operations/api/complaints-map/`, `/operations/api/active-crews-map/`, and the worker-only crew member location endpoint. Admin task assignment, crew progress, citizen completion responses, and dispute resolution are authenticated POST routes. The complaint and crew map APIs are administrator-only.
+### Authentication & Account (`/accounts/`)
 
-## Maps and location behavior
+| URL | View Function | Description |
+| :--- | :--- | :--- |
+| `/accounts/login/` | `accounts.views.login_view` | Shared email/password authentication |
+| `/accounts/register/` | `accounts.views.register_view` | Unified registration with dynamic role-specific fields |
+| `/accounts/logout/` | `accounts.views.logout_view` | Secure session termination |
+| `/accounts/dashboard/` | `accounts.views.dashboard` | Role-based dashboard dispatcher |
+| `/accounts/forgot-password/` | `accounts.views.password_reset_request` | OTP password recovery request |
+| `/accounts/forgot-password/verify/` | `accounts.views.password_reset_verify` | OTP verification and password reset form |
 
-The shared citizen/home map requests only the public dustbin API; it does not receive complaint, pickup, or worker location data. Administrators can add permanent public dustbin markers inside the saved service boundary; each marker receives an automatic `DBno…` identifier. The admin map additionally loads complaint and pickup coordinates, status, and active crew leader locations. Crew markers refresh periodically and never expose individual member coordinates. Complaint and pickup status filters and crew task/availability filters are administrator-only.
+### Citizen Services (`/citizen/`)
 
-The service boundary remains stored and functional even though its polygon is visually hidden. Its coordinates still center the map and validate whether administrators can add public locations. The public dustbin API returns only active locations and, when a boundary exists, only those inside it. The boundary geometry API remains separate from the public waste-location API.
+| URL | View Function | Description |
+| :--- | :--- | :--- |
+| `/` | `citizen_services.views.home` | Public landing page with overview and quick links |
+| `/citizen/dashboard/` | `citizen_services.views.dashboard` | Citizen dashboard with request statistics and service links |
+| `/citizen/nearby-dustbins/` | `citizen_services.views.nearby_dustbins` | Dedicated nearby dustbins locator with geolocation |
+| `/citizen/submit/` | `citizen_services.views.submit_request` | Submit complaints or scheduled household pickups |
+| `/citizen/requests/` | `citizen_services.views.my_requests` | List of all citizen-submitted requests with status badges |
+| `/citizen/requests/<id>/` | `citizen_services.views.request_detail` | Detailed view and timeline of a specific request |
+| `/citizen/requests/<id>/cancel/` | `citizen_services.views.cancel_request` | Cancel a submitted request prior to assignment |
+| `/citizen/api/dustbins/` | `citizen_services.views.dustbins_api` | Public JSON endpoint of active dustbins for maps |
 
-Google Maps requires `GOOGLE_MAPS_API_KEY`. Without it, pages still render and show a setup message. If the key is rejected or the Maps JavaScript API fails to load, the map displays a diagnostic message; check that Maps JavaScript API and billing are enabled and that the current host is allowed by the key's HTTP referrer restrictions. Maps use the Maps JavaScript API Routes library (`Route.computeRoutes`) for driving directions to dustbins and crew tasks; enable both Maps JavaScript API and Routes API for the key.
+### Administrator Operations (`/operations/admin/`)
 
-## Configuration
+| URL | View Function | Description |
+| :--- | :--- | :--- |
+| `/operations/admin/` | `workforce.views.admin_dashboard` | Admin dashboard with live stats and operational shortcuts |
+| `/operations/admin/requests/` | `workforce.views.request_management` | Filter and review all citizen requests |
+| `/operations/admin/requests/<id>/` | `workforce.views.request_detail_admin` | Request detail, approval, rejection, and task creation |
+| `/operations/admin/dustbins/` | `workforce.views.dustbin_management` | Overview map, registered dustbins, and map-picker registration |
+| `/operations/admin/dustbins/<id>/` | `workforce.views.dustbin_update` | Edit dustbin coordinates on map and review cleaning history |
+| `/operations/admin/dustbins/<id>/delete/` | `workforce.views.dustbin_delete` | Delete a public dustbin record |
+| `/operations/admin/workers/` | `workforce.views.worker_management` | Review worker applications, approvals, and designations |
+| `/operations/admin/workers/<id>/edit/` | `workforce.views.worker_update` | Edit worker ID, designation, and approval status |
+| `/operations/admin/crews/` | `workforce.views.crew_management` | Form new temporary crews and view historical records |
+| `/operations/admin/crews/<id>/` | `workforce.views.crew_detail` | Detailed roster, leader, tasks, and historical archive view |
+| `/operations/admin/crews/<id>/dissolve/` | `workforce.views.dissolve_crew_view` | Dissolve active crew while preserving all historical data |
+| `/operations/admin/vehicles/` | `workforce.views.vehicle_management` | Fleet inventory and vehicle registration |
+| `/operations/admin/vehicles/assign-driver/` | `workforce.views.assign_vehicle_driver` | Assign available vehicle to an approved driver |
+| `/operations/admin/vehicles/assignments/<id>/release/` | `workforce.views.release_vehicle_assignment` | Release active vehicle assignment |
+| `/operations/admin/tasks/` | `workforce.views.task_management` | List, filter, and create tasks with map coordinate picker |
+| `/operations/admin/tasks/<id>/` | `workforce.views.task_detail` | Task details, location map, proof photo, and admin verification |
 
-Settings load key/value pairs from a root `.env` file when present, then allow real process environment variables to take precedence. `.env` is ignored by Git; this repository does not currently include an `.env.example`. The supported keys are:
+### Worker Operations (`/operations/worker/`)
 
-| Variable | Purpose | Default/behavior |
-| --- | --- | --- |
-| `DJANGO_DEBUG` | Django debug mode | `False` |
-| `DEVELOPMENT_SERVER_SESSION_RESET` | Sign out sessions after a development server restart | Enabled when debug is true; disabled when debug is false |
-| `DJANGO_SECRET_KEY` | Django signing secret | Required when debug is false |
-| `DJANGO_ALLOWED_HOSTS` | Comma-separated allowed hosts | `localhost,127.0.0.1` |
-| `DATABASE_NAME` | PostgreSQL database name | `smart_waste` |
-| `DATABASE_USER` | PostgreSQL user | `postgres` |
-| `DATABASE_PASSWORD` | PostgreSQL password | `postgres` |
-| `DATABASE_HOST` | PostgreSQL host | `127.0.0.1` |
-| `DATABASE_PORT` | PostgreSQL port | `5432` |
-| `GOOGLE_MAPS_API_KEY` | Google Maps JavaScript API key (enable Maps JavaScript API and Routes API) | Empty; map fallback is shown |
-| `MUNICIPAL_OFFICE_LAT`, `MUNICIPAL_OFFICE_LNG` | Attendance center coordinates | `16.833944`, `81.531444` |
-| `ATTENDANCE_RADIUS_METERS` | Maximum check-in distance | `150` |
-| `VEHICLE_ALERT_RADIUS_METERS` | Proximity alert radius | `1000` |
-| `TASK_CONFIRMATION_TIMEOUT_HOURS` | Citizen completion response deadline | `24` |
-| `TASK_CONFIRMATION_REMINDER_HOURS` | Reminder window before the deadline | `2` |
-| `RESOURCE_LOCATION_MAX_AGE_SECONDS` | Maximum age for a location to count as fresh | `300` |
-| `WORKER_LOCATION_UPDATE_INTERVAL_SECONDS` | GPS update interval while assigned | `15` |
-| `CREW_LOCATION_POLL_INTERVAL_SECONDS` | Admin/leader map refresh interval | `15` |
-| `DJANGO_EMAIL_BACKEND` | Email backend dotted path | Console backend in debug; SMTP backend otherwise |
-| `DEFAULT_FROM_EMAIL` | Default sender address | `noreply@smartwaste.local` |
+| URL | View Function | Description |
+| :--- | :--- | :--- |
+| `/operations/worker/` | `workforce.views.worker_dashboard` | Worker task roster, assigned crew, and availability toggle |
+| `/operations/worker/availability/` | `workforce.views.worker_set_availability` | Toggle worker daily availability (`Active` / `Inactive`) |
+| `/operations/worker/tasks/<id>/start/` | `workforce.views.worker_start_task` | Move assigned task to `IN_PROGRESS` |
+| `/operations/worker/tasks/<id>/complete/` | `workforce.views.worker_complete_task` | Submit completion remarks and upload completion photo |
 
-Example local `.env` values (replace credentials and secret locally):
+---
+
+## Google Maps Integration
+
+Google Maps is integrated into both citizen-facing and administrator-facing features:
+
+1. **API Key Setup**: Set `GOOGLE_MAPS_API_KEY` in your `.env` file. The key requires the **Maps JavaScript API** enabled in Google Cloud Console.
+2. **Graceful Fallbacks**: If the API key is not supplied, map containers display friendly placeholder cards advising that manual coordinate entry remains available.
+3. **Citizen Locator**: One-shot geolocation with pin drops, InfoWindows, and Haversine distance computations.
+4. **Task & Dustbin Pickers**: Click-to-pin, draggable markers, and bi-directional synchronization with numeric coordinate input fields.
+
+---
+
+## Environment Configuration
+
+Configuration is loaded from environment variables and a root `.env` file via `python-dotenv`:
 
 ```dotenv
+# Django Configuration
 DJANGO_DEBUG=True
-DJANGO_SECRET_KEY=replace-with-a-long-random-secret
-DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+DJANGO_SECRET_KEY=your-secure-django-secret-key-here
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,testserver
+
+# PostgreSQL Database Configuration
 DATABASE_NAME=smart_waste
 DATABASE_USER=postgres
-DATABASE_PASSWORD=replace-me
+DATABASE_PASSWORD=postgres
 DATABASE_HOST=127.0.0.1
 DATABASE_PORT=5432
-GOOGLE_MAPS_API_KEY=
-MUNICIPAL_OFFICE_LAT=16.833944
-MUNICIPAL_OFFICE_LNG=81.531444
-ATTENDANCE_RADIUS_METERS=150
-VEHICLE_ALERT_RADIUS_METERS=1000
-TASK_CONFIRMATION_TIMEOUT_HOURS=24
-TASK_CONFIRMATION_REMINDER_HOURS=2
-RESOURCE_LOCATION_MAX_AGE_SECONDS=300
-WORKER_LOCATION_UPDATE_INTERVAL_SECONDS=15
-CREW_LOCATION_POLL_INTERVAL_SECONDS=15
+
+# Google Maps API
+GOOGLE_MAPS_API_KEY=AIzaSyYourActualGoogleMapsApiKeyHere
+
+# Email Backend (Console backend used in DEBUG mode)
+DJANGO_EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
+DEFAULT_FROM_EMAIL=noreply@smartwaste.local
 ```
 
-In debug mode, password reset email is written to the console. For production email delivery, configure Django's SMTP host/port/credentials in the deployment settings; this project currently reads the email backend and sender address from environment variables, not the SMTP connection fields. Production must use HTTPS, `DJANGO_DEBUG=False`, a unique secret, restricted allowed hosts, and appropriately restricted media storage.
+---
 
-## Setup
+## Installation and Setup
 
-Prerequisites: Python supported by the Django version installed from `requirements.txt`, PostgreSQL, and an optional Google Maps API key. `requirements.txt` currently specifies Django `>=5.0,<6.0`; the local environment used during recent development reported Django 6.0.2, so use a dependency environment that matches the declared range when reproducing installs and tests.
+### Prerequisites
+- **Python 3.10+** (Python 3.12 recommended)
+- **PostgreSQL 14+** running locally or remotely
+- **Google Maps JavaScript API key** (optional, for map features)
 
-### Windows PowerShell
+### 1. Clone & Set Up Virtual Environment
 
+**Windows PowerShell:**
 ```powershell
+git clone <repository-url>
+cd SmartWasteManagementSystem
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python manage.py migrate
-python manage.py createsuperuser
-python manage.py runserver
 ```
 
-### macOS/Linux
-
+**macOS / Linux:**
 ```bash
+git clone <repository-url>
+cd SmartWasteManagementSystem
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
+```
+
+### 2. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Configure Database
+Create a PostgreSQL database matching your `.env` configuration:
+```sql
+CREATE DATABASE smart_waste;
+```
+
+### 4. Run Migrations & Create Superuser
+```bash
 python manage.py migrate
 python manage.py createsuperuser
+```
+
+### 5. Start the Development Server
+```bash
 python manage.py runserver
 ```
+Visit `http://127.0.0.1:8000/` in your browser.
 
-Before running migrations, configure PostgreSQL and set the variables above. On first setup, use Django Admin at `/django-admin/` to set the administrator role if needed, define the four-point service boundary, and add vehicles. Then use Worker operations to approve applicants, manage driver assignments and crews, and add public map locations inside the service boundary. Schedule `process_task_confirmations` so reminders and timeout-to-review transitions run automatically.
+---
 
-## Migrations and data preservation
+## Automated Tests and Verification
 
-Migrations are committed per app under each app's `migrations/` directory. Apply them with `python manage.py migrate`; do not delete migration files, reset migrations, or drop existing tables. The driver-vehicle migration copies legacy driver vehicle data into fleet inventory before removing the old profile columns. Pending/unapproved legacy drivers' vehicles are preserved as available fleet records but are not actively assigned.
+Run the test suite using Django's test runner:
 
-Before applying production schema changes, take a PostgreSQL backup (for example, with `pg_dump`) and verify the configured database. Django fixture exports can preserve model rows but do not include uploaded file contents, PostgreSQL roles, or full database schema metadata.
+```bash
+# Run unit and workflow tests
+python manage.py test
 
-## Tests and checks
-
-The isolated test settings use in-memory SQLite and a locmem email backend; tests do not alter the configured PostgreSQL database:
-
-```powershell
-python manage.py test --settings=config.test_settings
-python manage.py check --settings=config.test_settings
-python manage.py makemigrations --check --dry-run --settings=config.test_settings
+# Verify model and system checks
+python manage.py check
 ```
 
-## Project layout
+The comprehensive verification suite covers:
+- Citizen nearby dustbins access control and JSON API response.
+- Worker blocking on citizen-only endpoints.
+- Admin task creation with coordinate validation and map picking.
+- Crew dissolution and historical archive details view (`FieldError` regression test).
+- Admin dustbin creation with map picker and coordinate bounds enforcement.
+
+---
+
+## Project Directory Layout
 
 ```text
-accounts/          Custom user, profiles, email authentication, registration, OTP reset
-citizen_services/ Waste locations, boundaries, complaints, pickups, saved locations, APIs
-workforce/         Vehicles, driver assignments, crews, attendance, admin/worker workflows
-config/            Settings, root URLs, WSGI/ASGI, context processors, test settings
-templates/         Shared layout and citizen, operations, and auth pages
-static/css/        Shared site styles
-static/js/         Map, citizen dashboard, and worker GPS interactions
-media/             User uploads (ignored by Git)
-manage.py          Django command-line entry point
-requirements.txt   Python dependencies
+SmartWasteManagementSystem/
+├── accounts/
+│   ├── models.py            # User, CitizenProfile, WorkerProfile, PasswordResetOTP
+│   ├── views.py             # Login, register, logout, dashboard, OTP reset
+│   ├── urls.py              # Account endpoints
+│   ├── forms.py             # Registration and profile forms
+│   └── backends.py          # Case-insensitive EmailBackend
+├── citizen_services/
+│   ├── models.py            # Dustbin, CleaningHistory, Request
+│   ├── views.py             # Citizen dashboard, request submission, nearby dustbins
+│   ├── urls.py              # Citizen endpoints and dustbins API
+│   └── forms.py             # UnifiedRequestForm, DustbinForm
+├── workforce/
+│   ├── models.py            # Vehicle, VehicleAssignment, Crew, CrewMember, Task, Notification
+│   ├── views.py             # Operations admin views, worker dashboard, task completion
+│   ├── urls.py              # Operations and worker endpoints
+│   └── forms.py             # TaskCreationForm, VehicleForm, CrewForm
+├── config/
+│   ├── settings.py          # Django project settings and environment configuration
+│   ├── urls.py              # Root URL router
+│   ├── wsgi.py / asgi.py    # Deployment entry points
+│   └── test_settings.py     # Isolated test configuration
+├── templates/
+│   ├── base.html            # Global layout with role-aware navbar and notifications
+│   ├── accounts/            # Login, register, forgot password templates
+│   ├── citizen/             # Dashboard, nearby_dustbins.html, request forms & lists
+│   └── operations/          # Admin dashboard, task_management, dustbins, crews, vehicles
+├── static/
+│   ├── css/style.css        # Responsive green-themed styling
+│   └── js/                  # Client-side map initialization and helpers
+├── media/                   # User uploaded photos and documents (git-ignored)
+├── manage.py                # Django CLI entry point
+├── requirements.txt         # Project dependencies
+└── README.md                # Project documentation
 ```
