@@ -20,6 +20,7 @@ from .services import (
     complete_task_execution,
     create_temporary_crew,
     dissolve_temporary_crew,
+    get_available_workers_queryset,
     notify_admins,
     notify_user,
     start_task_execution,
@@ -296,7 +297,7 @@ def worker_management(request):
             "form": form,
             "designation_filter": designation_filter,
             "availability_filter": availability_filter,
-            "designations": WorkerProfile.Designation.choices,
+            "designations": WorkerProfile.REGISTRATION_DESIGNATIONS,
             "availabilities": WorkerProfile.Availability.choices,
         },
     )
@@ -333,12 +334,7 @@ def crew_management(request):
     dissolved_crews = Crew.objects.filter(is_active=False).prefetch_related("members__user__worker_profile").order_by("-dissolved_at")
 
     # Available workers for new crew: must be ACTIVE and not in an active crew
-    assigned_worker_ids = CrewMember.objects.filter(crew__is_active=True, is_active=True).values_list("user_id", flat=True)
-    available_workers = User.objects.filter(
-        role=User.Role.WORKER,
-        worker_profile__availability=WorkerProfile.Availability.ACTIVE,
-        is_active=True,
-    ).exclude(pk__in=assigned_worker_ids).select_related("worker_profile")
+    available_workers = get_available_workers_queryset()
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -381,10 +377,28 @@ def crew_management(request):
 
 @administrator_required
 def crew_detail(request, crew_id):
-    """View crew details, members, and assigned tasks."""
+    """View crew details, members, allocated vehicles, and assigned tasks."""
     crew = get_object_or_404(Crew, pk=crew_id)
     members = crew.members.all().select_related("user", "user__worker_profile")
     crew_tasks = crew.tasks.all().order_by("-created_at")
+
+    if crew.is_active:
+        member_user_ids = [m.user_id for m in members if m.is_active]
+        vehicle_assignments = (
+            VehicleAssignment.objects.filter(driver_id__in=member_user_ids, is_active=True)
+            .select_related("vehicle", "driver", "driver__worker_profile")
+            .order_by("-assigned_at")
+        )
+    else:
+        member_user_ids = [m.user_id for m in members]
+        overlap_qs = VehicleAssignment.objects.filter(driver_id__in=member_user_ids)
+        if crew.dissolved_at:
+            overlap_qs = overlap_qs.filter(assigned_at__lte=crew.dissolved_at)
+        overlap_qs = overlap_qs.filter(Q(released_at__isnull=True) | Q(released_at__gte=crew.started_at))
+        vehicle_assignments = (
+            overlap_qs.select_related("vehicle", "driver", "driver__worker_profile")
+            .order_by("-assigned_at")
+        )
 
     return render(
         request,
@@ -393,6 +407,7 @@ def crew_detail(request, crew_id):
             "crew": crew,
             "members": members,
             "tasks": crew_tasks,
+            "vehicle_assignments": vehicle_assignments,
         },
     )
 
@@ -552,7 +567,7 @@ def task_detail(request, task_id):
     """View task details, location, assign worker/crew, monitor progress, verify completion."""
     task = get_object_or_404(Task, pk=task_id)
 
-    available_workers = User.objects.filter(role=User.Role.WORKER, is_active=True).select_related("worker_profile")
+    available_workers = get_available_workers_queryset()
     active_crews = Crew.objects.filter(is_active=True)
 
     if request.method == "POST":
@@ -562,11 +577,13 @@ def task_detail(request, task_id):
             worker_id = request.POST.get("assigned_worker")
             crew_id = request.POST.get("assigned_crew")
 
-            worker = User.objects.filter(pk=worker_id, role=User.Role.WORKER).first() if worker_id else None
+            worker = available_workers.filter(pk=worker_id).first() if worker_id else None
             crew = Crew.objects.filter(pk=crew_id, is_active=True).first() if crew_id else None
 
-            if not worker and not crew:
-                messages.error(request, "Select either an individual worker or an active crew.")
+            if worker_id and not worker:
+                messages.error(request, "Selected worker is unavailable or currently deployed in an active crew.")
+            elif not worker and not crew:
+                messages.error(request, "Select either an available individual worker or an active crew.")
             else:
                 assign_task_to_worker_or_crew(task, worker=worker, crew=crew)
                 messages.success(request, f"Task #{task.pk} assigned successfully.")
@@ -618,9 +635,11 @@ def worker_dashboard(request):
     # 1. Direct assignments
     # 2. Crew assignments
     crew_ids = [active_crew.pk] if active_crew else []
-    tasks = Task.objects.filter(
-        Q(assigned_worker=request.user) | Q(assigned_crew_id__in=crew_ids)
-    ).order_by("-created_at")
+    tasks = (
+        Task.objects.filter(Q(assigned_worker=request.user) | Q(assigned_crew_id__in=crew_ids))
+        .select_related("assigned_crew", "assigned_crew__crew_leader")
+        .order_by("-created_at")
+    )
 
     assigned_tasks = tasks.filter(status=Task.Status.ASSIGNED)
     in_progress_tasks = tasks.filter(status=Task.Status.IN_PROGRESS)
@@ -661,6 +680,10 @@ def worker_set_availability(request):
         is_active=True,
     ).exists()
 
+    if in_active_crew:
+        messages.error(request, "Workers deployed in an active crew cannot change availability while status is locked to ASSIGNED.")
+        return redirect("operations:worker_dashboard")
+
     if status_choice == "ACTIVE":
         profile.availability = WorkerProfile.Availability.ACTIVE
         profile.availability_updated_at = timezone.now()
@@ -673,35 +696,37 @@ def worker_set_availability(request):
         messages.success(request, "Your status is now set to AVAILABLE.")
 
     elif status_choice == "INACTIVE":
-        if in_active_crew:
-            messages.error(request, "Workers assigned to an active crew cannot independently deactivate themselves.")
-        else:
-            profile.availability = WorkerProfile.Availability.INACTIVE
-            profile.availability_updated_at = timezone.now()
-            profile.save(update_fields=["availability", "availability_updated_at"])
+        profile.availability = WorkerProfile.Availability.INACTIVE
+        profile.availability_updated_at = timezone.now()
+        profile.save(update_fields=["availability", "availability_updated_at"])
 
-            notify_admins(
-                f"Worker {request.user.get_full_name() or request.user.username} is now UNAVAILABLE (INACTIVE).",
-                link="/operations/admin/workers/",
-            )
-            messages.info(request, "Your status is now set to UNAVAILABLE.")
+        notify_admins(
+            f"Worker {request.user.get_full_name() or request.user.username} is now UNAVAILABLE (INACTIVE).",
+            link="/operations/admin/workers/",
+        )
+        messages.info(request, "Your status is now set to UNAVAILABLE.")
 
     return redirect("operations:worker_dashboard")
+
+
+def _can_worker_manage_task(user, task):
+    """Direct assignees manage direct tasks; only the active crew leader manages crew tasks."""
+    if task.assigned_crew_id:
+        return task.assigned_crew.is_active and task.assigned_crew.crew_leader_id == user.pk
+    return task.assigned_worker_id == user.pk
 
 
 @worker_required
 @require_POST
 def worker_start_task(request, task_id):
     """Worker starts an ASSIGNED task -> transitions to IN_PROGRESS."""
-    task = get_object_or_404(Task, pk=task_id)
+    task = get_object_or_404(Task.objects.select_related("assigned_crew"), pk=task_id)
 
-    # Verify authorization: directly assigned worker or crew member/leader
-    authorized = (task.assigned_worker == request.user)
-    if not authorized and task.assigned_crew:
-        authorized = CrewMember.objects.filter(crew=task.assigned_crew, user=request.user, is_active=True).exists()
-
-    if not authorized:
-        messages.error(request, "You are not authorized to start this task.")
+    if not _can_worker_manage_task(request.user, task):
+        if task.assigned_crew_id:
+            messages.error(request, "Only the designated crew leader can start crew-assigned tasks.")
+        else:
+            messages.error(request, "You are not authorized to start this task.")
         return redirect("operations:worker_dashboard")
 
     if task.status != Task.Status.ASSIGNED:
@@ -716,14 +741,13 @@ def worker_start_task(request, task_id):
 @worker_required
 def worker_complete_task(request, task_id):
     """Worker submits completion photograph and remarks -> COMPLETED."""
-    task = get_object_or_404(Task, pk=task_id)
+    task = get_object_or_404(Task.objects.select_related("assigned_crew"), pk=task_id)
 
-    authorized = (task.assigned_worker == request.user)
-    if not authorized and task.assigned_crew:
-        authorized = CrewMember.objects.filter(crew=task.assigned_crew, user=request.user, is_active=True).exists()
-
-    if not authorized:
-        messages.error(request, "You are not authorized to complete this task.")
+    if not _can_worker_manage_task(request.user, task):
+        if task.assigned_crew_id:
+            messages.error(request, "Only the designated crew leader can complete crew-assigned tasks.")
+        else:
+            messages.error(request, "You are not authorized to complete this task.")
         return redirect("operations:worker_dashboard")
 
     if task.status != Task.Status.IN_PROGRESS:

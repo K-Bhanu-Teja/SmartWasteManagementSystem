@@ -8,6 +8,24 @@ from .models import Crew, CrewMember, Notification, Task, Vehicle, VehicleAssign
 User = get_user_model()
 
 
+def get_available_workers_queryset():
+    """Return active workers whose availability is ACTIVE and not deployed in an active crew."""
+    assigned_worker_ids = CrewMember.objects.filter(
+        crew__is_active=True,
+        is_active=True,
+    ).values_list("user_id", flat=True)
+    return (
+        User.objects.filter(
+            role=User.Role.WORKER,
+            is_active=True,
+            worker_profile__availability=WorkerProfile.Availability.ACTIVE,
+        )
+        .exclude(pk__in=assigned_worker_ids)
+        .select_related("worker_profile")
+        .order_by("first_name", "username")
+    )
+
+
 def notify_user(recipient, message, link=""):
     """Creates a notification for a user."""
     if recipient:

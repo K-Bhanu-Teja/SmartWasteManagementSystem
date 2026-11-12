@@ -73,6 +73,12 @@ class WorkerProfile(models.Model):
         CLEANER = "cleaner", "Cleaner"
         CREW_LEADER = "crew_leader", "Crew Leader"
 
+    # Crew leaders are selected dynamically from workers/drivers per crew, not at registration.
+    REGISTRATION_DESIGNATIONS = [
+        (Designation.DRIVER, Designation.DRIVER.label),
+        (Designation.CLEANER, Designation.CLEANER.label),
+    ]
+
     class Availability(models.TextChoices):
         INACTIVE = "INACTIVE", "Inactive"
         ACTIVE = "ACTIVE", "Active"

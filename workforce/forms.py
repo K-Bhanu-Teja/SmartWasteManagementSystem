@@ -2,6 +2,7 @@ from django import forms
 from accounts.models import User, WorkerProfile
 from citizen_services.models import Dustbin
 from .models import Crew, Task, Vehicle, VehicleAssignment
+from .services import get_available_workers_queryset
 
 
 class VehicleForm(forms.ModelForm):
@@ -54,7 +55,7 @@ class TaskCreationForm(forms.ModelForm):
         self.fields["dustbin"].required = False
         self.fields["assigned_worker"].required = False
         self.fields["assigned_crew"].required = False
-        self.fields["assigned_worker"].queryset = User.objects.filter(role=User.Role.WORKER)
+        self.fields["assigned_worker"].queryset = get_available_workers_queryset()
         self.fields["assigned_crew"].queryset = Crew.objects.filter(is_active=True)
         self.fields["dustbin"].queryset = Dustbin.objects.filter(is_active=True)
 

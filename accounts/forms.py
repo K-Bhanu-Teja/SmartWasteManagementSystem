@@ -110,7 +110,7 @@ class WorkerRegistrationForm(forms.Form):
     email = forms.EmailField(label="Email Address")
     mobile_number = forms.CharField(max_length=24, label="Mobile Number")
     designation = forms.ChoiceField(
-        choices=WorkerProfile.Designation.choices,
+        choices=WorkerProfile.REGISTRATION_DESIGNATIONS,
         label="Job Designation",
     )
     worker_id = forms.CharField(
@@ -172,6 +172,10 @@ class WorkerUpdateForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        choices = list(WorkerProfile.REGISTRATION_DESIGNATIONS)
+        if self.instance and self.instance.pk and self.instance.designation == WorkerProfile.Designation.CREW_LEADER:
+            choices.append((WorkerProfile.Designation.CREW_LEADER, "Crew Leader (Legacy)"))
+        self.fields["designation"].choices = choices
         if self.instance and self.instance.user:
             self.fields["full_name"].initial = self.instance.user.get_full_name() or self.instance.user.username
             self.fields["email"].initial = self.instance.user.email

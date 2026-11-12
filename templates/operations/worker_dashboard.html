@@ -37,6 +37,7 @@
     <div class="card">
       <div class="card-header">
         <h3>Availability Controls</h3>
+        <span class="badge badge-{{ profile.availability|lower }}">{{ profile.get_availability_display }}</span>
       </div>
       <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 14px;">
         Indicate whether you are on duty and ready for temporary crew deployment or direct tasks.
@@ -54,8 +55,8 @@
         <form method="post" action="{% url 'operations:worker_set_availability' %}">
           {% csrf_token %}
           <input type="hidden" name="availability" value="ACTIVE">
-          <button type="submit" class="btn btn-primary" style="width: 100%; margin-bottom: 8px;" {% if profile.availability == "ACTIVE" %}disabled{% endif %}>
-            ✔ I'M AVAILABLE
+          <button type="submit" class="btn btn-primary" style="width: 100%; margin-bottom: 8px;" {% if profile.availability == "ACTIVE" or active_crew %}disabled{% endif %}>
+            {% if profile.availability == "ACTIVE" %}✔ AVAILABLE (CURRENT){% else %}✔ I'M AVAILABLE{% endif %}
           </button>
         </form>
 
@@ -63,7 +64,7 @@
           {% csrf_token %}
           <input type="hidden" name="availability" value="INACTIVE">
           <button type="submit" class="btn btn-secondary" style="width: 100%;" {% if profile.availability == "INACTIVE" or active_crew %}disabled{% endif %}>
-            ✖ I'M UNAVAILABLE
+            {% if profile.availability == "INACTIVE" %}✖ UNAVAILABLE (CURRENT){% else %}✖ I'M UNAVAILABLE{% endif %}
           </button>
         </form>
       </div>
@@ -126,6 +127,10 @@
         <div style="background-color: var(--primary-light); padding: 10px; border-radius: 4px; font-size: 0.88rem; color: var(--primary);">
           <strong>Crew Leader Permissions:</strong> You can start and submit completion reports for tasks assigned to this crew.
         </div>
+      {% else %}
+        <div style="background-color: #F5F5F5; padding: 10px; border-radius: 4px; font-size: 0.88rem; color: var(--text-muted); border: 1px solid var(--border);">
+          <strong>Crew Member View:</strong> Crew-assigned tasks are started and completed by your Crew Leader ({{ active_crew.crew_leader.get_full_name|default:active_crew.crew_leader.username }}).
+        </div>
       {% endif %}
     </div>
   {% endif %}
@@ -171,11 +176,15 @@
                     {% endif %}
                   </td>
                   <td>
-                    <!-- 11.4 Start Task Button -->
-                    <form method="post" action="{% url 'operations:worker_start_task' task.pk %}">
-                      {% csrf_token %}
-                      <button type="submit" class="btn btn-primary btn-sm">START TASK</button>
-                    </form>
+                    {% if not task.assigned_crew or task.assigned_crew.crew_leader_id == request.user.pk %}
+                      <!-- 11.4 Start Task Button -->
+                      <form method="post" action="{% url 'operations:worker_start_task' task.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-primary btn-sm">START TASK</button>
+                      </form>
+                    {% else %}
+                      <span class="badge" style="background-color: #F5F5F5; color: var(--text-muted); border: 1px solid var(--border);">Managed by Crew Leader</span>
+                    {% endif %}
                   </td>
                 </tr>
               {% endfor %}
@@ -214,10 +223,14 @@
                   <td>{{ task.location_name|default:"Coords" }}</td>
                   <td>{{ task.started_at|date:"M j, g:i A"|default:"Just now" }}</td>
                   <td>
-                    <!-- 11.4 Complete Task Button -->
-                    <a href="{% url 'operations:worker_complete_task' task.pk %}" class="btn btn-primary btn-sm">
-                      COMPLETE TASK &rarr;
-                    </a>
+                    {% if not task.assigned_crew or task.assigned_crew.crew_leader_id == request.user.pk %}
+                      <!-- 11.4 Complete Task Button -->
+                      <a href="{% url 'operations:worker_complete_task' task.pk %}" class="btn btn-primary btn-sm">
+                        COMPLETE TASK &rarr;
+                      </a>
+                    {% else %}
+                      <span class="badge" style="background-color: #F5F5F5; color: var(--text-muted); border: 1px solid var(--border);">Managed by Crew Leader</span>
+                    {% endif %}
                   </td>
                 </tr>
               {% endfor %}

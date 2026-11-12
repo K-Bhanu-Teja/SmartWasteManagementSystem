@@ -55,6 +55,49 @@
     </div>
   </div>
 
+  <!-- Allocated Vehicle Details (via assigned driver) -->
+  <div class="card" style="margin-bottom: 20px;">
+    <div class="card-header">
+      <h3>Allocated Vehicle Details ({{ vehicle_assignments.count }})</h3>
+    </div>
+    {% if vehicle_assignments %}
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Registration Number</th>
+              <th>Vehicle Type</th>
+              <th>Allocated Driver</th>
+              <th>Worker ID</th>
+              <th>Assigned At</th>
+              <th>Assignment Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for va in vehicle_assignments %}
+              <tr>
+                <td><strong>{{ va.vehicle.registration_number }}</strong></td>
+                <td>{{ va.vehicle.vehicle_type|default:"Municipal Vehicle" }}</td>
+                <td>{{ va.driver.get_full_name|default:va.driver.username }}</td>
+                <td>{{ va.driver.worker_profile.worker_id|default:va.driver.pk }}</td>
+                <td style="font-size: 0.85rem;">{{ va.assigned_at|date:"M j, Y g:i A" }}</td>
+                <td>
+                  {% if va.is_active %}
+                    <span class="badge badge-active">Active</span>
+                  {% else %}
+                    <span class="badge badge-inactive">Released ({{ va.released_at|date:"M j, Y g:i A"|default:"-" }})</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p style="color: var(--text-muted); font-size: 0.9rem;">No vehicle-allocated driver is assigned to this crew.</p>
+    {% endif %}
+  </div>
+
   <div class="grid-cols-2">
     <!-- Crew Members Table -->
     <div class="card">

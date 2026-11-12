@@ -235,6 +235,14 @@ main {
   text-decoration: none;
 }
 
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+  filter: grayscale(35%);
+}
+
 .btn-primary {
   background-color: var(--primary);
   color: #FFFFFF;
